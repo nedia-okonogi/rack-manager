@@ -1,0 +1,2449 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <script>window.onerror = function(msg, url, lineNo) { alert('Global JS Error: ' + msg + '\nLine: ' + lineNo); return false; };</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>DataCenter Rack Manager v0.5.3 - L3/VLAN & Floor External Cable Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20260915_v053_02">
+</head>
+<body class="dark-theme">
+
+  <!-- アプリヘッダー -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-badge">
+        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+          <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+          <line x1="6" y1="6" x2="6.01" y2="6"></line>
+          <line x1="6" y1="18" x2="6.01" y2="18"></line>
+        </svg>
+        <div class="logo-text">
+          <h1>RackManager</h1>
+          <span class="subtitle">L3スイッチ/ルーター VLAN ＆ ポート別IP管理</span>
+        </div>
+      </div>
+
+      <!-- 死活統計バッジ ＆ DB接続状態バッジ -->
+      <div class="status-summary" id="status-summary">
+        <div class="stat-pill online" title="Ping 正常稼働">
+          <span class="dot pulse-green"></span>
+          <span class="count" id="stat-online-count">0</span>
+          <span class="label">稼働中</span>
+        </div>
+        <div class="stat-pill offline" title="Ping 応答なし (ダウン)">
+          <span class="dot pulse-red"></span>
+          <span class="count" id="stat-offline-count">0</span>
+          <span class="label">異常</span>
+        </div>
+        <div class="stat-pill unmonitored" title="Ping 監視無効/未設定">
+          <span class="dot gray"></span>
+          <span class="count" id="stat-unmonitored-count">0</span>
+          <span class="label">未監視</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ヘッダー中央: リアルタイム検索バー (案1) -->
+    <div class="header-search-container">
+      <div class="search-input-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="global-search-input" class="global-search-input" placeholder="機器名・IP・ホスト名・タグで検索... (Ctrl+K)" autocomplete="off">
+        <button type="button" class="btn-clear-search" id="btn-clear-search" title="検索をクリア" style="display:none;">✕</button>
+        <span class="search-shortcut-badge">Ctrl K</span>
+      </div>
+      <!-- 検索候補・結果ドロップダウン -->
+      <div class="search-results-dropdown" id="search-results-dropdown" style="display:none;">
+        <div class="search-results-header" id="search-results-header">検索結果 (0件)</div>
+        <div class="search-results-list" id="search-results-list"></div>
+      </div>
+    </div>
+
+    <!-- アクションボタン群 -->
+    <div class="header-actions">
+      <!-- 🚧 初期構築モード（履歴記録OFF）トグル -->
+      <button class="btn btn-setup-mode" id="btn-toggle-setup-mode" title="初期構築モード: ONにすると機器の追加・編集・移動・配線時に変更履歴ログへの自動記録を停止します（データ本体のみ保存）">
+        <span class="setup-mode-icon">🚧</span>
+        <span class="setup-mode-text">初期構築モード</span>
+        <span class="setup-mode-pill" id="setup-mode-pill">OFF</span>
+      </button>
+
+      <div class="view-toggle-group">
+        <button class="btn-toggle active" id="btn-global-front" title="全ラックを前面表示">前面<span class="toggle-subtext"> (Front)</span></button>
+        <button class="btn-toggle" id="btn-global-rear" title="全ラックを背面表示">背面<span class="toggle-subtext"> (Rear)</span></button>
+      </div>
+
+      <!-- 元に戻す・やり直す (Undo / Redo) -->
+      <div class="undo-redo-group">
+        <button class="btn btn-secondary btn-undo-redo" id="btn-undo" title="直前の操作を元に戻す (Ctrl+Z)" disabled>
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="1 4 1 10 7 10"></polyline>
+            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+          </svg>
+          <span class="btn-text">元に戻す</span>
+        </button>
+        <button class="btn btn-secondary btn-undo-redo" id="btn-redo" title="やり直す (Ctrl+Y)" disabled>
+          <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+          <span class="btn-text">やり直す</span>
+        </button>
+      </div>
+
+      <button class="btn btn-primary" id="btn-add-rack" title="新規ラックを追加">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span class="btn-text">ラック追加</span>
+      </button>
+
+      <!-- ワッフルメニュー (9-dots アプリケーションメニュー) -->
+      <div class="waffle-menu-container">
+        <button class="btn btn-icon btn-waffle" id="btn-waffle-menu" title="ツール ＆ アプリメニュー">
+          <svg class="icon-waffle" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="5" r="2"></circle>
+            <circle cx="12" cy="5" r="2"></circle>
+            <circle cx="19" cy="5" r="2"></circle>
+            <circle cx="5" cy="12" r="2"></circle>
+            <circle cx="12" cy="12" r="2"></circle>
+            <circle cx="19" cy="12" r="2"></circle>
+            <circle cx="5" cy="19" r="2"></circle>
+            <circle cx="12" cy="19" r="2"></circle>
+            <circle cx="19" cy="19" r="2"></circle>
+          </svg>
+        </button>
+
+        <!-- ワッフルメニュードロップダウン -->
+        <div class="waffle-dropdown" id="waffle-dropdown" style="display:none;">
+          <div class="waffle-dropdown-header">RackManager ツール</div>
+          <div class="waffle-grid">
+            <div class="waffle-item" id="btn-waffle-history">
+              <div class="waffle-icon-box amber">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 8v4l3 3"></path>
+                  <circle cx="12" cy="12" r="9"></circle>
+                  <path d="M3.05 11a9 9 0 0 1 .5-2m-.5 2H7"></path>
+                </svg>
+              </div>
+              <span class="waffle-label">変更履歴</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-impact">
+              <div class="waffle-icon-box red">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                  <line x1="12" y1="9" x2="12" y2="13"></line>
+                  <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                </svg>
+              </div>
+              <span class="waffle-label">影響分析</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-csv">
+              <div class="waffle-icon-box green">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="16" y1="13" x2="8" y2="13"></line>
+                  <line x1="16" y1="17" x2="8" y2="17"></line>
+                  <polyline points="10 9 9 9 8 9"></polyline>
+                </svg>
+              </div>
+              <span class="waffle-label">CSV 台帳</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-report">
+              <div class="waffle-icon-box blue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                  <rect x="6" y="14" width="12" height="8"></rect>
+                </svg>
+              </div>
+              <span class="waffle-label">ラック台帳</span>
+            </div>
+
+
+            <div class="waffle-item" id="btn-waffle-storage">
+              <div class="waffle-icon-box cyan">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+              </div>
+              <span class="waffle-label">機器保管庫</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-ping-all">
+              <div class="waffle-icon-box yellow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+              </div>
+              <span class="waffle-label">全Ping実行</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-settings">
+              <div class="waffle-icon-box purple">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+              </div>
+              <span class="waffle-label">システム設定</span>
+            </div>
+
+            <div class="waffle-item" id="btn-waffle-export-import">
+              <div class="waffle-icon-box slate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+              </div>
+              <span class="waffle-label">データ入出力</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 配線モード時の接続指示バナー -->
+  <div class="cable-connecting-bar hidden" id="cable-connecting-bar">
+    <div class="connecting-content">
+      <span class="pulse-dot" id="cable-connecting-pulse-dot"></span>
+      <div class="connecting-text-wrap">
+        <span id="cable-connecting-text">接続元ポートをクリックして選択してください</span>
+      </div>
+    </div>
+
+    <!-- ラックジャンプナビゲーション (接続元選択時に自動出現) -->
+    <div class="cable-rack-jump-group hidden" id="cable-rack-jump-group">
+      <span class="cable-jump-label">ラック移動:</span>
+      <div class="cable-rack-jump-list" id="cable-rack-jump-list"></div>
+    </div>
+
+    <!-- クイック機器検索アシスタント (接続元選択時に自動出現) -->
+    <div class="cable-quick-connect-search-group hidden" id="cable-quick-connect-group">
+      <div class="cable-search-box-wrap">
+        <input type="text" id="cable-quick-target-search" class="cable-quick-search-input" placeholder="🔍 接続先機器/IP/タグ検索..." autocomplete="off">
+        <div class="cable-quick-results-dropdown hidden" id="cable-quick-results-dropdown"></div>
+      </div>
+    </div>
+    
+    <!-- ケーブルカラー選択パレット -->
+    <div class="cable-color-picker-group">
+      <span class="cable-color-picker-title">配線色:</span>
+      <div class="cable-color-palette" id="cable-connecting-color-palette"></div>
+      <label class="cable-custom-color-btn" title="カスタムカラー選択">
+        <input type="color" id="cable-custom-color-input" class="cable-custom-color-input" value="#38bdf8">
+        <span class="custom-color-icon">🎨</span>
+      </label>
+    </div>
+
+    <button class="btn btn-sm btn-secondary" id="btn-cancel-cable">キャンセル (ESC)</button>
+  </div>
+
+  <!-- 障害影響シミュレーション実行中バナー -->
+  <div class="impact-active-bar hidden" id="impact-active-bar">
+    <div class="impact-bar-content">
+      <span class="pulse-dot red"></span>
+      <span id="impact-bar-text">⚠️ 障害影響シミュレーション実行中</span>
+    </div>
+    <div class="impact-bar-actions">
+      <button class="btn btn-sm btn-secondary" id="btn-reopen-impact">影響一覧を表示</button>
+      <button class="btn btn-sm btn-danger" id="btn-banner-clear-impact">シミュレーション解除 (ESC)</button>
+    </div>
+  </div>
+
+  <!-- メインコンテンツレイアウト -->
+  <div class="app-layout">
+    
+    <!-- 左サイドバー: 機器パレット (ドラッグ＆ドロップ用) -->
+    <aside class="device-palette" id="device-palette">
+      <div class="palette-header">
+        <div class="palette-header-text">
+          <h2>機器パレット</h2>
+          <span class="palette-tip">ラックへ D&amp;D で配置</span>
+        </div>
+        <button type="button" class="btn-palette-toggle" id="btn-toggle-palette" title="機器パレットを閉じる (&lt;)">
+          <svg class="icon-toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <div class="palette-categories">
+        
+        <!-- ネットワーク & セキュリティアプライアンス -->
+        <div class="palette-group">
+          <div class="group-title">ネットワーク &amp; セキュリティ</div>
+          <div class="palette-items">
+            <div class="palette-item" draggable="true" data-type="utm" data-size="1" data-default-name="UTM Firewall" data-default-tags="security,firewall,utm" data-default-port-count="8" data-default-watts="50">
+              <div class="item-visual utm">
+                <span class="u-badge">1U</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">UTM / 次世代FW</span>
+                <span class="item-desc">Fortinet / Palo Alto / 8P (50W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="l3_switch" data-size="1" data-default-name="Core L3 Switch" data-default-tags="network,l3,core" data-default-port-count="24" data-default-watts="100">
+              <div class="item-visual l3">
+                <span class="u-badge">1U</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="16 3 21 3 21 8"></polyline>
+                    <line x1="4" y1="20" x2="21" y2="3"></line>
+                    <polyline points="21 16 21 21 16 21"></polyline>
+                    <line x1="15" y1="15" x2="21" y2="21"></line>
+                    <line x1="4" y1="4" x2="9" y2="9"></line>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">L3 コアスイッチ</span>
+                <span class="item-desc">Cisco Catalyst / 24P (100W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="l2_switch" data-size="1" data-default-name="Edge L2 Switch" data-default-tags="network,l2,access" data-default-port-count="24" data-default-watts="40">
+              <div class="item-visual l2">
+                <span class="u-badge">1U</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                    <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                    <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                    <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">L2 エッジスイッチ</span>
+                <span class="item-desc">フロア収容SW / 24P (40W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="router" data-size="1" data-default-name="Edge Router" data-default-tags="network,router,gateway" data-default-port-count="8" data-default-watts="25">
+              <div class="item-visual router">
+                <span class="u-badge">1U</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">ルーター / GW</span>
+                <span class="item-desc">Yamaha RTX / Cisco / 8P (25W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="ap" data-size="1" data-default-name="Wireless AP" data-default-tags="network,wireless,ap,wifi" data-default-port-count="2" data-default-watts="15">
+              <div class="item-visual ap">
+                <span class="u-badge">1U相当</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                    <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">無線LAN AP / Wi-Fi</span>
+                <span class="item-desc">Cisco / Aruba / PoE (15W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="onu" data-size="1" data-default-name="ONU / Modem" data-default-tags="network,onu,wan,fiber" data-default-port-count="2" data-default-watts="10">
+              <div class="item-visual onu">
+                <span class="u-badge">1U相当</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+                    <line x1="6" y1="12" x2="6.01" y2="12"></line>
+                    <line x1="10" y1="12" x2="10.01" y2="12"></line>
+                    <line x1="14" y1="12" x2="14.01" y2="12"></line>
+                    <path d="M18 10v4"></path>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">ONU / モデム / 回線終端</span>
+                <span class="item-desc">NTT / 各社光終端 (10W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="mc" data-size="1" data-default-name="Media Converter" data-default-tags="network,mc,fiber" data-default-port-count="2" data-default-watts="5">
+              <div class="item-visual mc">
+                <span class="u-badge">1U相当</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="7 9 10 12 7 15"></polyline>
+                    <polyline points="17 15 14 12 17 9"></polyline>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">メディアコンバーター / MC</span>
+                <span class="item-desc">光(SC/LC) ⇔ メタル(RJ45) 変換 (5W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="hub" data-size="1" data-default-name="Switching Hub" data-default-tags="network,hub" data-default-port-count="8" data-default-watts="5">
+              <div class="item-visual hub">
+                <span class="u-badge">1U相当</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="7" width="20" height="10" rx="2"></rect>
+                    <circle cx="6" cy="12" r="1.5"></circle>
+                    <circle cx="10" cy="12" r="1.5"></circle>
+                    <circle cx="14" cy="12" r="1.5"></circle>
+                    <circle cx="18" cy="12" r="1.5"></circle>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">スイッチングハブ / 小型HUB</span>
+                <span class="item-desc">5〜8P 小型HUB / ポート増設 (5W)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ラックマウント型 -->
+        <div class="palette-group">
+          <div class="group-title">ラックマウントサーバー</div>
+          <div class="palette-items">
+            <div class="palette-item" draggable="true" data-type="rackmount" data-size="1" data-default-name="1U Server" data-default-tags="server,compute" data-default-port-count="2" data-default-watts="100">
+              <div class="item-visual u1">
+                <span class="u-badge">1U</span>
+                <div class="server-face-mini">
+                  <span class="led-dot"></span>
+                  <span class="drive-lines"></span>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">1U サーバー</span>
+                <span class="item-desc">Web / App / 汎用 (100W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="rackmount" data-size="2" data-default-name="2U Server" data-default-tags="server,compute" data-default-port-count="4" data-default-watts="150">
+              <div class="item-visual u2">
+                <span class="u-badge">2U</span>
+                <div class="server-face-mini">
+                  <span class="led-dot"></span>
+                  <span class="drive-lines"></span>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">2U サーバー</span>
+                <span class="item-desc">DB / 仮想化 (150W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="rackmount" data-size="4" data-default-name="4U Server" data-default-tags="server,compute" data-default-port-count="4" data-default-watts="300">
+              <div class="item-visual u4">
+                <span class="u-badge">4U</span>
+                <div class="server-face-mini">
+                  <span class="led-dot"></span>
+                  <span class="drive-lines"></span>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">4U サーバー / JBOD</span>
+                <span class="item-desc">GPU計算機 / 大容量 (300W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="nas" data-size="2" data-default-name="Storage NAS" data-default-tags="storage,nas,backup" data-default-port-count="4" data-default-watts="60">
+              <div class="item-visual nas u2">
+                <span class="u-badge">2U</span>
+                <span class="net-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="12" x2="2" y2="12"></line>
+                    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                    <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                    <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                  </svg>
+                </span>
+              </div>
+              <div class="item-info">
+                <span class="item-name">NAS / ストレージ</span>
+                <span class="item-desc">Synology / QNAP / 4P (60W)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 非ラックマウント・その他機器 -->
+        <div class="palette-group">
+          <div class="group-title">端末・PC / 電源設備</div>
+          <div class="palette-items">
+            <div class="palette-item" draggable="true" data-type="laptop" data-size="1" data-default-name="Laptop PC" data-default-tags="pc,laptop,client" data-default-port-count="1" data-default-watts="30">
+              <div class="item-visual laptop">
+                <span class="u-badge">1U相当</span>
+                <div class="laptop-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="4" width="16" height="12" rx="2"></rect>
+                    <path d="M2 20h20"></path>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">ノートPC (Laptop)</span>
+                <span class="item-desc">モバイル・保守端末 (30W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="desktop_pc" data-size="2" data-default-name="Desktop PC" data-default-tags="pc,desktop,client" data-default-port-count="1" data-default-watts="80">
+              <div class="item-visual desktop">
+                <span class="u-badge">2U相当</span>
+                <div class="desktop-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">デスクトップPC (Desktop PC)</span>
+                <span class="item-desc">オフィス・常設端末 (80W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="iot" data-size="1" data-default-name="IoT Device" data-default-tags="iot,sensor,edge" data-default-port-count="1" data-default-watts="5">
+              <div class="item-visual iot">
+                <span class="u-badge">1U相当</span>
+                <div class="iot-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                    <rect x="9" y="9" width="6" height="6"></rect>
+                    <line x1="9" y1="1" x2="9" y2="4"></line>
+                    <line x1="15" y1="1" x2="15" y2="4"></line>
+                    <line x1="9" y1="20" x2="9" y2="23"></line>
+                    <line x1="15" y1="20" x2="15" y2="23"></line>
+                    <line x1="20" y1="9" x2="23" y2="9"></line>
+                    <line x1="20" y1="14" x2="23" y2="14"></line>
+                    <line x1="1" y1="9" x2="4" y2="9"></line>
+                    <line x1="1" y1="14" x2="4" y2="14"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">IoT機器 / センサー</span>
+                <span class="item-desc">環境センサー / RasPi (5W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="tower" data-size="5" data-default-name="Tower Workstation" data-default-tags="workstation,gpu,ai" data-default-port-count="2" data-default-watts="300">
+              <div class="item-visual tower">
+                <span class="u-badge">5U</span>
+                <div class="tower-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                    <line x1="8" y1="6" x2="16" y2="6"></line>
+                    <line x1="8" y1="10" x2="16" y2="10"></line>
+                    <circle cx="12" cy="16" r="1.5"></circle>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">タワー型マシン (縦型)</span>
+                <span class="item-desc">PC / ワークステーション (300W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="desktop" data-size="1" data-default-name="Desktop Router/Switch" data-default-tags="network,hub,desktop" data-default-port-count="8" data-default-watts="20">
+              <div class="item-visual desktop">
+                <span class="u-badge">1U</span>
+                <div class="desktop-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">卓上ルーター / 小型スイッチ</span>
+                <span class="item-desc">卓上型ルーター・スマートSW (20W)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="pdu" data-size="1" data-default-name="PDU 電源ユニット" data-default-tags="power,pdu" data-default-port-count="0" data-default-watts="0">
+              <div class="item-visual pdu">
+                <span class="u-badge">1U</span>
+                <div class="pdu-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">PDU / 電源ユニット (1U)</span>
+                <span class="item-desc">電源タップ (前面/背面)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="ups" data-size="2" data-default-name="2U UPS / 無停電電源装置" data-default-tags="power,ups,battery" data-default-port-count="0" data-default-watts="0">
+              <div class="item-visual ups">
+                <span class="u-badge">2U</span>
+                <div class="ups-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                    <path d="M12 8v4m0 0l-2-2m2 2l2-2"></path>
+                    <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                    <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                    <line x1="14" y1="16" x2="14.01" y2="16"></line>
+                    <line x1="18" y1="16" x2="18.01" y2="16"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">2U UPS / 無停電電源</span>
+                <span class="item-desc">APC / Eaton / 蓄電池ユニット (前面/背面)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ラック棚板 & その他・収容機器 -->
+        <div class="palette-group">
+          <div class="group-title">ラック棚板 &amp; 収容機器 (前面/背面)</div>
+          <div class="palette-items">
+            <div class="palette-item" draggable="true" data-type="shelf" data-size="1" data-default-name="1U 固定棚板 (Shelf)" data-default-tags="shelf,storage" data-default-port-count="0" data-default-watts="0">
+              <div class="item-visual shelf">
+                <span class="u-badge">1U</span>
+                <div class="shelf-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="2" y1="14" x2="22" y2="14"></line>
+                    <rect x="2" y="14" width="20" height="4" rx="1"></rect>
+                    <line x1="6" y1="14" x2="6" y2="8"></line>
+                    <line x1="18" y1="14" x2="18" y2="8"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">1U 固定棚板 (Shelf)</span>
+                <span class="item-desc">小型機器の複数積載用シェルフ (前面/背面)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="shelf" data-size="2" data-default-name="2U 固定棚板 (Shelf)" data-default-tags="shelf,storage" data-default-port-count="0" data-default-watts="0">
+              <div class="item-visual shelf">
+                <span class="u-badge">2U</span>
+                <div class="shelf-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="2" y1="16" x2="22" y2="16"></line>
+                    <rect x="2" y="16" width="20" height="5" rx="1"></rect>
+                    <line x1="6" y1="16" x2="6" y2="6"></line>
+                    <line x1="18" y1="16" x2="18" y2="6"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">2U 固定棚板 (Shelf)</span>
+                <span class="item-desc">大型機器・NAS・タワー設置用 (前面/背面)</span>
+              </div>
+            </div>
+
+            <div class="palette-item" draggable="true" data-type="misc" data-size="1" data-default-name="その他収容機器 (ONU/HDD/HUB)" data-default-tags="misc,onu,storage">
+              <div class="item-visual misc">
+                <span class="u-badge">1U</span>
+                <div class="misc-icon">
+                  <svg class="icon-palette-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                  </svg>
+                </div>
+              </div>
+              <div class="item-info">
+                <span class="item-name">その他・雑多機器 (1U)</span>
+                <span class="item-desc">ONU / 外付けHDD / PoE電源 / メモ (前面/背面)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- パレット下部ミニ凡例 -->
+      <div class="palette-legend">
+        <div class="legend-row"><span class="led-dot green"></span> Ping 稼働中 (OK)</div>
+        <div class="legend-row"><span class="led-dot red"></span> Ping 応答なし (Down)</div>
+        <div class="legend-row"><span class="led-dot gray"></span> Ping 設定なし (無効)</div>
+        <div class="legend-row"><span class="ghost-sample"></span> 背面ビュー時の前面ゴースト</div>
+      </div>
+    </aside>
+
+    <!-- 機器パレット展開用トグルボタン (折りたたみ時に左端に表示) -->
+    <button type="button" class="btn-palette-reopen hidden" id="btn-open-palette" title="機器パレットを展開 (&gt;)">
+      <svg class="icon-toggle-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+      <span class="palette-reopen-text">機器パレット</span>
+    </button>
+
+    <!-- 中央メイン: ラック一覧 (横並びスクロールエリア) -->
+    <main class="rack-stage" id="rack-stage">
+      <div class="rack-stage-header">
+        <div class="stage-info">
+          <span id="rack-count-text">ラック一覧 (0台)</span>
+          <span class="stage-sub">ドラッグ＆ドロップでスロット間移動・パレット/保管庫からの配置が可能です</span>
+        </div>
+        <div class="stage-header-tools">
+          <!-- その他の場所ウィジェット (保管庫の左側) -->
+          <div class="other-location-widget" id="other-location-widget" title="その他の場所 (会議室、支社、各デスクに配置された機器の一覧・管理 / クリックで一覧表示)">
+            <div class="other-location-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="other-loc-svg-icon">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+            </div>
+            <div class="other-location-meta">
+              <div class="other-location-title">その他の場所</div>
+              <div class="other-location-count" id="other-location-count">0 台配置中</div>
+            </div>
+            <div class="other-location-drop-cue">ここにドロップして移動</div>
+          </div>
+
+          <!-- 保管庫シェイプウィジェット (ヘッダー/キャンバス常設) -->
+          <div class="storage-depot-widget" id="storage-depot-widget" title="機器保管庫 (機器をここにドラッグしてアンマウント保管 / クリックで一覧表示)">
+            <div class="storage-depot-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="depot-svg-icon">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+              </svg>
+            </div>
+            <div class="storage-depot-meta">
+              <div class="storage-depot-title">機器保管庫</div>
+              <div class="storage-depot-count" id="storage-depot-count">0 台保管中</div>
+            </div>
+            <div class="storage-depot-drop-cue">ここにドロップして保管</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- キャンバス上部 D&D アンマウント受入ドロップゾーン -->
+      <div class="canvas-storage-drop-bar" id="canvas-storage-drop-bar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="drop-bar-icon">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <span class="drop-bar-text">ここにドロップして機器保管庫へアンマウント (自動履歴記録)</span>
+      </div>
+
+      <!-- ビューポート (自由パン・ズーム領域) -->
+      <div class="stage-viewport" id="stage-viewport">
+        <!-- ラックが横並びでレンダリングされるコンテナ -->
+        <div class="racks-container" id="racks-container">
+          <!-- JSで動的レンダリング -->
+        </div>
+      </div>
+
+      <!-- フローティング ズーム＆ビューツールバー (右下) -->
+      <div class="floating-viewport-controls">
+        <div class="floating-control-group">
+          <button class="floating-btn" id="btn-zoom-out" title="縮小 (Ctrl + Wheel Down)">−</button>
+          <span class="floating-zoom-badge" id="zoom-level-text">100%</span>
+          <button class="floating-btn" id="btn-zoom-in" title="拡大 (Ctrl + Wheel Up)">＋</button>
+        </div>
+        <div class="floating-control-separator"></div>
+        <div class="floating-control-group">
+          <button class="floating-btn floating-action-btn" id="btn-zoom-fit" title="全ラックが収まるよう全体表示">
+            <span>Fit</span>
+          </button>
+          <button class="floating-btn floating-action-btn" id="btn-zoom-reset" title="ズームと位置を初期位置にリセット">
+            <span>100%</span>
+          </button>
+        </div>
+        <div class="floating-control-separator"></div>
+        <div class="floating-control-group">
+          <button class="floating-btn floating-action-btn" id="btn-floating-undo" title="元に戻す (Ctrl+Z)" disabled>
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+          </button>
+          <button class="floating-btn floating-action-btn" id="btn-floating-redo" title="やり直す (Ctrl+Y)" disabled>
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右サイドバー: サーバー詳細プロパティパネル -->
+    <aside class="property-panel" id="property-panel">
+      <div class="panel-header">
+        <div class="panel-title-area">
+          <span class="panel-badge" id="prop-type-badge">1U Rackmount</span>
+          <h2 id="prop-title">サーバー詳細</h2>
+        </div>
+        <button class="btn-close" id="btn-close-prop" title="閉じる">×</button>
+      </div>
+
+      <div class="panel-body" id="prop-panel-body">
+        
+        <!-- 死活モニターステータスカード -->
+        <div class="status-card" id="prop-status-card">
+          <div class="status-indicator">
+            <span class="status-circle" id="prop-status-circle"></span>
+            <div class="status-text-group">
+              <div class="status-headline" id="prop-status-headline">Ping 監視設定なし</div>
+              <div class="status-sub" id="prop-status-sub">Ping設定を有効にすると死活監視されます</div>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-ping" id="btn-ping-single">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <span>今すぐ Ping</span>
+          </button>
+        </div>
+
+        <form id="property-form" class="property-form">
+          <!-- 機器名 ＆ 管理番号 (一意ID) -->
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-name">機器名 / 表示名 <span class="required">*</span></label>
+              <input type="text" id="prop-name" required placeholder="例: web-prod-01">
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-ticket-no">管理番号 (一意ID)</label>
+              <input type="text" id="prop-ticket-no" placeholder="例: CHG-2026-001" style="font-family:var(--font-mono); font-weight:700; color:var(--accent-cyan);">
+            </div>
+          </div>
+
+          <!-- IPアドレス & VIP & ホスト名 -->
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-ip">個別管理IP (Mgmt IP)</label>
+              <input type="text" id="prop-ip" placeholder="例: 192.168.100.1">
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-vip">仮想代表IP (VIP / 共有)</label>
+              <input type="text" id="prop-vip" placeholder="例: 192.168.1.254">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-install-date">導入日付 (稼働開始日)</label>
+              <input type="date" id="prop-install-date">
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-hostname">ホスト名</label>
+              <input type="text" id="prop-hostname" placeholder="例: utm01.corp.local">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-ha-role">HA 冗長構成ロール</label>
+              <select id="prop-ha-role">
+                <option value="standalone">単体稼働 (Standalone)</option>
+                <option value="primary">HA Primary (主系 / Active)</option>
+                <option value="secondary">HA Secondary (従系 / Standby)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" id="group-prop-ha-pair" style="display:none;">
+            <label for="prop-ha-pair">HA クラスタペア相手機器</label>
+            <select id="prop-ha-pair">
+              <option value="">-- ペア相手機器を選択 --</option>
+            </select>
+          </div>
+
+          <!-- メーカー & 型番 -->
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-vendor">メーカー名</label>
+              <input type="text" id="prop-vendor" placeholder="例: Dell, HPE, Cisco">
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-model">型番</label>
+              <input type="text" id="prop-model" placeholder="例: PowerEdge R640">
+            </div>
+          </div>
+
+          <!-- サーバー分類タグ -->
+          <div class="form-group">
+            <label for="prop-tags-input">サーバータグ (用途: web, db, hosting, backup, etc.)</label>
+            <div class="tags-editor" id="prop-tags-editor">
+              <div class="tags-list" id="prop-tags-list"></div>
+              <input type="text" id="prop-tag-new" placeholder="タグを入力してEnter (例: web)">
+            </div>
+            <div class="quick-tags-container">
+              <div class="quick-tags-row">
+                <span class="quick-tag-label">通信:</span>
+                <button type="button" class="btn-quick-tag" data-tag="router">router</button>
+                <button type="button" class="btn-quick-tag" data-tag="onu">onu</button>
+                <button type="button" class="btn-quick-tag" data-tag="mc">mc</button>
+                <button type="button" class="btn-quick-tag" data-tag="hg">hg</button>
+                <button type="button" class="btn-quick-tag" data-tag="ap">ap</button>
+                <button type="button" class="btn-quick-tag" data-tag="hub">hub</button>
+              </div>
+              <div class="quick-tags-row">
+                <span class="quick-tag-label">サーバー:</span>
+                <button type="button" class="btn-quick-tag" data-tag="web">web</button>
+                <button type="button" class="btn-quick-tag" data-tag="db">db</button>
+                <button type="button" class="btn-quick-tag" data-tag="app">app</button>
+                <button type="button" class="btn-quick-tag" data-tag="nas">nas</button>
+                <button type="button" class="btn-quick-tag" data-tag="backup">backup</button>
+              </div>
+              <div class="quick-tags-row">
+                <span class="quick-tag-label">設備:</span>
+                <button type="button" class="btn-quick-tag" data-tag="pc">pc</button>
+                <button type="button" class="btn-quick-tag" data-tag="iot">iot</button>
+                <button type="button" class="btn-quick-tag" data-tag="power">power</button>
+                <button type="button" class="btn-quick-tag" data-tag="security">security</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ラック設置仕様 -->
+          <div class="form-section-title">設置構成</div>
+          
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-rack-select">所属ラック</label>
+              <select id="prop-rack-select"></select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-start-u">設置スロット (開始U)</label>
+              <input type="number" id="prop-start-u" min="1" max="52" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-size-u">占有サイズ (U)</label>
+              <input type="number" id="prop-size-u" min="1" max="20" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-side">設置面</label>
+              <select id="prop-side">
+                <option value="front">前面 (Front)</option>
+                <option value="rear">背面 (Rear)</option>
+                <option value="full">前後貫通 (Full Depth)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-slot-width">幅・配置 (スロット分割)</label>
+              <select id="prop-slot-width">
+                <option value="full">フル幅 (標準 19インチ / 1列占有)</option>
+                <option value="half-1">ハーフ幅 (左側 / 列1)</option>
+                <option value="half-2">ハーフ幅 (右側 / 列2)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-port-count">LAN ポート数</label>
+              <select id="prop-port-count">
+                <option value="0">0 ポート (なし)</option>
+                <option value="1">1 ポート</option>
+                <option value="2">2 ポート</option>
+                <option value="3">3 ポート</option>
+                <option value="4">4 ポート</option>
+                <option value="5">5 ポート</option>
+                <option value="6">6 ポート</option>
+                <option value="8">8 ポート</option>
+                <option value="12">12 ポート</option>
+                <option value="16">16 ポート</option>
+                <option value="24">24 ポート</option>
+                <option value="48">48 ポート</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="prop-type">機器タイプ</label>
+              <select id="prop-type">
+                <option value="utm">UTM / 次世代ファイアウォール</option>
+                <option value="l3_switch">L3 コアスイッチ</option>
+                <option value="l2_switch">L2 エッジスイッチ</option>
+                <option value="router">ルーター / ゲートウェイ</option>
+                <option value="onu">ONU / 光終端装置 / モデム</option>
+                <option value="mc">メディアコンバーター (MC / 光電変換)</option>
+                <option value="ap">無線AP / アクセスポイント (Wi-Fi)</option>
+                <option value="rackmount">ラックマウント型サーバー</option>
+                <option value="nas">NAS / ストレージ装置 (Storage)</option>
+                <option value="tower">タワー型 / 縦型マシン (シェルフ設置)</option>
+                <option value="desktop">卓上型ルーター / 小型スイッチ</option>
+                <option value="hub">スイッチングハブ / 小型HUB (HUB)</option>
+                <option value="laptop">ノートPC / クライアント端末 (Laptop)</option>
+                <option value="desktop_pc">デスクトップPC / 常設端末 (Desktop PC)</option>
+                <option value="iot">IoT機器 / 環境センサー / エッジ端末 (IoT)</option>
+                <option value="pdu">PDU 電源ユニット</option>
+                <option value="ups">UPS 無停電電源装置 (Battery)</option>
+                <option value="shelf">固定棚板 / スライドシェルフ (Shelf)</option>
+                <option value="misc">その他・雑多機器 / 収容ボックス (Misc)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="prop-power">定格消費電力 (W)</label>
+              <input type="number" id="prop-power" min="0" max="10000" placeholder="例: 350">
+            </div>
+          </div>
+
+          <!-- UPS専用設定エリア (UPS選択時のみ表示) -->
+          <div class="form-group ups-config-card" id="group-prop-ups-config" style="display:none;">
+            <div class="ups-card-header">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--status-warning, #f59e0b);">
+                <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+              </svg>
+              <span>⚡ UPS 給電・出力容量設定 (ラック上限に自動連動)</span>
+            </div>
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="prop-ups-capacity">定格出力容量 (W) <span class="required">*</span></label>
+                <input type="number" id="prop-ups-capacity" min="100" max="50000" placeholder="例: 1500 (1500VA/1200W-1500W)">
+              </div>
+              <div class="form-group flex-1">
+                <label for="prop-ups-runtime">停電時バックアップ時間 (分)</label>
+                <input type="number" id="prop-ups-runtime" min="1" max="300" placeholder="例: 10">
+              </div>
+            </div>
+            <div class="ups-load-monitor" id="prop-ups-load-monitor">
+              <div class="ups-load-label-row">
+                <span>🔋 UPS 負荷率:</span>
+                <span class="ups-load-val" id="prop-ups-load-val">0W / 1,500W (0%)</span>
+              </div>
+              <div class="ups-load-track">
+                <div class="ups-load-bar" id="prop-ups-load-bar" style="width: 0%;"></div>
+              </div>
+              <span class="helper-text">※ラック内に複数台のUPSがある場合、すべてのUPS出力容量が合算されてラック全体の電力上限に自動連動します。</span>
+            </div>
+          </div>
+
+          <!-- LANケーブル配線・ポート稼働状況 -->
+          <div class="form-section-title">LANケーブル配線・ポート稼働状況</div>
+          <div class="prop-cables-section">
+            <!-- ポート稼働ビジュアルマップ (使用中/空きの視覚表示) -->
+            <div class="prop-port-map-card" id="prop-port-map-card">
+              <div class="prop-port-map-header">
+                <span class="prop-port-map-title">🔌 ポート稼働マップ</span>
+                <span class="prop-port-map-summary" id="prop-port-map-summary">全 0 ポート</span>
+              </div>
+              <div class="prop-port-grid-container" id="prop-port-grid-container">
+                <!-- 動的レンダリング -->
+              </div>
+            </div>
+
+            <div class="prop-quick-cable-box">
+              <div class="cable-target-type-tabs">
+                <button type="button" class="btn-cable-type-tab active" id="btn-cable-type-device" data-type="device">🏢 ラック内機器</button>
+                <button type="button" class="btn-cable-type-tab" id="btn-cable-type-external" data-type="external">🌐 フロア・外部配線 (Floor/WAN)</button>
+              </div>
+
+              <!-- 1. ラック内機器への接続UI -->
+              <div id="prop-cable-target-device-section">
+                <div class="prop-cable-search-wrap">
+                  <input type="text" id="prop-cable-target-search" class="prop-cable-search-input" placeholder="🔍 接続先機器/IP/タグ/ラックで瞬時絞り込み..." autocomplete="off">
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-from-port">自機器ポート</label>
+                    <select id="prop-cable-from-port"></select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-target-dev">接続先機器 <span id="prop-cable-target-count" class="badge-count"></span></label>
+                    <select id="prop-cable-target-dev"></select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-to-port">接続先ポート</label>
+                    <select id="prop-cable-to-port"></select>
+                  </div>
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-color-select">ケーブルカラー</label>
+                    <div class="prop-cable-color-wrapper">
+                      <select id="prop-cable-color-select" style="flex:1;">
+                        <option value="#38bdf8">🔵 ブルー (標準LAN)</option>
+                        <option value="#22c55e">🟢 グリーン (基幹/サーバー)</option>
+                        <option value="#eab308">🟡 イエロー (DMZ/境界)</option>
+                        <option value="#f97316">🟠 オレンジ (HA/冗長心線)</option>
+                        <option value="#ef4444">🔴 レッド (WAN/セキュリティ)</option>
+                        <option value="#a855f7">🟣 パープル (管理/Mgmt)</option>
+                        <option value="#ec4899">🌸 ピンク (特殊用途)</option>
+                        <option value="#e2e8f0">⚪ ホワイト (SAN/ストレージ)</option>
+                        <option value="#64748b">⚫ グレー (予備/その他)</option>
+                      </select>
+                      <label class="prop-color-picker-label" title="カスタムカラー指定">
+                        <input type="color" id="prop-cable-custom-color" class="prop-color-input-dot" value="#38bdf8">
+                        <span class="color-preview-circle" id="prop-cable-color-preview" style="background:#38bdf8;"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. フロア・外部配線UI -->
+              <div id="prop-cable-target-external-section" style="display:none;">
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-ext-from-port">自機器ポート</label>
+                    <select id="prop-cable-ext-from-port"></select>
+                  </div>
+                  <div class="form-group flex-2">
+                    <label for="prop-cable-ext-target">フロア / 外部接続先名 <span class="required">*</span></label>
+                    <input type="text" id="prop-cable-ext-target" placeholder="例: 3F 執務室 島A-04, 2F 会議室HUB, NTT光回線">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-bottom:6px;">
+                  <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:3px;">クイック候補:</label>
+                  <div class="quick-floor-tags-container">
+                    <button type="button" class="btn-quick-floor-tag" data-target="3F 執務エリア">3F 執務エリア</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="2F 会議室">2F 会議室</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="1F 受付 / エントランス">1F 受付</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="フロアHUB / スイッチ">フロアHUB</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="情報コンセント #">情報コンセント</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="NTT光回線 / WAN1">NTT光(WAN)</button>
+                    <button type="button" class="btn-quick-floor-tag" data-target="無線AP / 天井">無線AP</button>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label for="prop-cable-ext-color-select">ケーブルカラー</label>
+                    <div class="prop-cable-color-wrapper">
+                      <select id="prop-cable-ext-color-select" style="flex:1;">
+                        <option value="#22c55e">🟢 グリーン (フロア配線/Uplink)</option>
+                        <option value="#38bdf8">🔵 ブルー (標準LAN)</option>
+                        <option value="#ef4444">🔴 レッド (WAN/外部回線)</option>
+                        <option value="#eab308">🟡 イエロー (DMZ/ゲスト)</option>
+                        <option value="#f97316">🟠 オレンジ (拠点間VPN)</option>
+                        <option value="#a855f7">🟣 パープル (AP/無線)</option>
+                        <option value="#64748b">⚫ グレー (その他)</option>
+                      </select>
+                      <label class="prop-color-picker-label" title="カスタムカラー指定">
+                        <input type="color" id="prop-cable-ext-custom-color" class="prop-color-input-dot" value="#22c55e">
+                        <span class="color-preview-circle" id="prop-cable-ext-color-preview" style="background:#22c55e;"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-row" style="margin-top:6px;">
+                <button type="button" class="btn btn-secondary" id="btn-prop-add-cable" style="width:100%;">＋ 結線を追加</button>
+              </div>
+            </div>
+            <div class="prop-cables-list" id="prop-cables-list"></div>
+          </div>
+
+          <!-- ポート別 VLAN ＆ IP アドレス構成 (L3/ルーター/スイッチ対応) -->
+          <div class="form-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>🌐 ポート別 VLAN ＆ IP アドレス構成</span>
+            <button type="button" class="btn btn-xs btn-secondary" id="btn-prop-bulk-vlan-toggle" style="font-size:11px; padding:2px 8px;">一括設定</button>
+          </div>
+          
+          <div class="prop-vlan-section" id="prop-vlan-section">
+            <!-- 一括設定パネル (トグルで表示) -->
+            <div class="prop-vlan-bulk-box" id="prop-vlan-bulk-box" style="display:none;">
+              <div class="vlan-bulk-title">⚡ ポート範囲一括設定</div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="bulk-vlan-range">対象ポート (例: 1-8, 9-16, all)</label>
+                  <input type="text" id="bulk-vlan-range" placeholder="例: 1-12">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="bulk-vlan-mode">動作モード</label>
+                  <select id="bulk-vlan-mode">
+                    <option value="access">Access (端末/一般)</option>
+                    <option value="routed">Routed (ルーテッド / IP直付)</option>
+                    <option value="trunk">Trunk (タグVLAN集約)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="bulk-vlan-id">VLAN ID</label>
+                  <input type="number" id="bulk-vlan-id" min="1" max="4094" placeholder="例: 10">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="bulk-vlan-name">VLAN 名</label>
+                  <input type="text" id="bulk-vlan-name" placeholder="例: DMZ">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="bulk-vlan-ip-prefix">IPプレフィックス (連番自動生成)</label>
+                  <input type="text" id="bulk-vlan-ip-prefix" placeholder="例: 192.168.10.{n}/24 (空欄可)">
+                </div>
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:6px;">
+                <button type="button" class="btn btn-sm btn-primary" id="btn-apply-bulk-vlan">一括適用</button>
+              </div>
+            </div>
+
+            <!-- 各ポート設定テーブル -->
+            <div class="prop-vlan-table-wrap">
+              <table class="prop-vlan-table">
+                <thead>
+                  <tr>
+                    <th style="width: 48px; text-align:center;">Port</th>
+                    <th style="width: 82px;">モード</th>
+                    <th style="width: 60px;">VLAN</th>
+                    <th style="width: 85px;">VLAN名</th>
+                    <th>割り当てIP (CIDR)</th>
+                    <th style="width: 32px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="prop-vlan-tbody">
+                  <!-- 動的にポート行を生成 -->
+                </tbody>
+              </table>
+            </div>
+            <div class="prop-vlan-hint">※ L3スイッチやルーターでは、ポートごとに個別のIPアドレス・VLAN・モード（Routed/Access/Trunk）を直接割り当てられます。</div>
+          </div>
+
+          <!-- Ping 死活監視設定 -->
+          <div class="form-section-title">死活監視 (Ping) 設定</div>
+          
+          <div class="form-group toggle-group">
+            <label class="toggle-switch">
+              <input type="checkbox" id="prop-ping-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="toggle-label">
+              <span class="primary-text">この機器の Ping 死活監視を有効にする</span>
+              <span class="sub-text">無効にするとステータスアイコンはグレーアウト表示になります</span>
+            </div>
+          </div>
+
+          <!-- メモ -->
+          <div class="form-group">
+            <label for="prop-notes">メモ / 備考</label>
+            <textarea id="prop-notes" rows="2" placeholder="メンテナンス履歴、接続ポート、管理者情報など"></textarea>
+          </div>
+
+          <!-- 変更履歴連動: 変更理由入力 -->
+          <div class="form-group prop-change-reason-group">
+            <label for="prop-change-reason">
+              <span>変更理由・作業メモ</span>
+              <span class="optional-badge">任意 / 履歴記録</span>
+            </label>
+            <input type="text" id="prop-change-reason" placeholder="例: IP変更、冗長化ポート結線、メモリ増設など">
+          </div>
+
+          <!-- パネル下部アクション -->
+          <div class="panel-actions">
+            <button type="submit" class="btn btn-primary flex-1" id="btn-save-prop">保存する</button>
+            <button type="button" class="btn btn-danger" id="btn-delete-device" title="機器を削除">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              <span>削除</span>
+            </button>
+          </div>
+
+          <!-- この機器の過去変更履歴タイムライン -->
+          <div class="prop-device-history-section" id="prop-device-history-section">
+            <div class="prop-history-header">
+              <span class="prop-history-title">📜 この機器の変更履歴</span>
+              <div class="prop-history-actions">
+                <span class="prop-history-count" id="prop-history-count">0 件</span>
+                <button type="button" class="btn-expand-history" id="btn-expand-device-history" title="この機器の変更履歴を画面中央で拡大表示">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;vertical-align:-1px;">
+                    <polyline points="15 3 21 3 21 9"></polyline>
+                    <polyline points="9 21 3 21 3 15"></polyline>
+                    <line x1="21" y1="3" x2="14" y2="10"></line>
+                    <line x1="3" y1="21" x2="10" y2="14"></line>
+                  </svg>
+                  <span>拡大表示</span>
+                </button>
+              </div>
+            </div>
+            <div class="prop-history-timeline" id="prop-history-timeline">
+              <!-- 動的レンダリング -->
+            </div>
+          </div>
+        </form>
+
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- モーダル: 監視設定 ＆ テーマ・採番設定 (Settings) -->
+  <div class="modal-backdrop" id="modal-settings">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <h3>システム設定 ＆ 外観カスタマイズ</h3>
+        </div>
+        <button class="btn-close" id="btn-close-settings">×</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- 1. カラーテーマ設定 -->
+        <div class="setting-section">
+          <div class="setting-section-header">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M12 2a7 7 0 0 0 7 7c0 2-2 3-2 3s.5 1.5.5 2.5a2.5 2.5 0 0 1-5 0c0-1-1.5-1.5-2.5-1.5a4 4 0 0 1-4-4 7 7 0 0 1 6-7z"></path>
+            </svg>
+            <h4>カラーテーマ (Theme)</h4>
+          </div>
+          <p class="desc-text">利用シーンやお好みに合わせた画面全体のカラーリングを選択できます。</p>
+          
+          <div class="theme-picker-grid" id="theme-picker-grid">
+            <!-- 1. 標準ダーク -->
+            <div class="theme-card active" data-theme="dark">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#070b14;"></span>
+                <span class="theme-dot" style="background:#152238;"></span>
+                <span class="theme-dot" style="background:#38bdf8;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Dark Modern</span>
+                <span class="theme-desc">標準ダーク（スレートネイビー）</span>
+              </div>
+            </div>
+
+            <!-- 2. GitHub Light / 白ベース -->
+            <div class="theme-card" data-theme="material">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#f6f8fa; border:1px solid #d0d7de;"></span>
+                <span class="theme-dot" style="background:#ffffff; border:1px solid #d0d7de;"></span>
+                <span class="theme-dot" style="background:#0969da;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">GitHub Light</span>
+                <span class="theme-desc">白ベース（GitHub / VSCode Light）</span>
+              </div>
+            </div>
+
+            <!-- 3. Monokai風 -->
+            <div class="theme-card" data-theme="monokai">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#272822;"></span>
+                <span class="theme-dot" style="background:#a6e22e;"></span>
+                <span class="theme-dot" style="background:#f92672;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Monokai Pro</span>
+                <span class="theme-desc">Monokai風（チャコール＆ビビッド）</span>
+              </div>
+            </div>
+
+            <!-- 4. Dracula風 -->
+            <div class="theme-card" data-theme="dracula">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#282a36;"></span>
+                <span class="theme-dot" style="background:#bd93f9;"></span>
+                <span class="theme-dot" style="background:#ff79c6;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Dracula Vampire</span>
+                <span class="theme-desc">ドラキュラ風（パープル＆ピンク）</span>
+              </div>
+            </div>
+
+            <!-- 5. カプチーノ風 (Catppuccin / Mocha) -->
+            <div class="theme-card" data-theme="cappuccino">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#2d2422;"></span>
+                <span class="theme-dot" style="background:#d4a373;"></span>
+                <span class="theme-dot" style="background:#faedcd;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Cappuccino Roast</span>
+                <span class="theme-desc">カプチーノ風（温かみのあるカフェモカ）</span>
+              </div>
+            </div>
+
+            <!-- 6. パステルカラー -->
+            <div class="theme-card" data-theme="pastel">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#faf6fd; border:1px solid #e9d5ff;"></span>
+                <span class="theme-dot" style="background:#fdf4ff; border:1px solid #d8b4fe;"></span>
+                <span class="theme-dot" style="background:#a855f7;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Pastel Dream</span>
+                <span class="theme-desc">パステル（ソフトラベンダー＆ミント）</span>
+              </div>
+            </div>
+
+            <!-- 7. サイバー (マトリックス風) -->
+            <div class="theme-card" data-theme="matrix">
+              <div class="theme-preview-dots">
+                <span class="theme-dot" style="background:#020904;"></span>
+                <span class="theme-dot" style="background:#00ff41;"></span>
+                <span class="theme-dot" style="background:#003b0f;"></span>
+              </div>
+              <div class="theme-info">
+                <span class="theme-title">Matrix Cyber</span>
+                <span class="theme-desc">サイバー（マトリックス・緑蛍光）</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 管理番号の自動採番設定 -->
+        <div class="setting-section">
+          <div class="setting-section-header">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            <h4>変更履歴・管理番号の自動採番ルール</h4>
+          </div>
+          <p class="desc-text">履歴登録時や申請書作成時に自動生成される管理番号の書式ルールを設定します。</p>
+
+          <div class="ticket-rule-grid">
+            <div class="form-group">
+              <label for="setting-ticket-prefix">接頭辞 (Prefix)</label>
+              <input type="text" id="setting-ticket-prefix" placeholder="例: CHG, SRV, INC" value="CHG" maxlength="10">
+            </div>
+            <div class="form-group">
+              <label for="setting-ticket-date-pattern">日付セグメント</label>
+              <select id="setting-ticket-date-pattern">
+                <option value="YYYY" selected>西暦4桁年 (例: 2026)</option>
+                <option value="YYYYMM">西暦年月 (例: 202608)</option>
+                <option value="YYMM">2桁年月 (例: 2608)</option>
+                <option value="none">日付なし (連番のみ)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="setting-ticket-digits">連番の桁数</label>
+              <select id="setting-ticket-digits">
+                <option value="3" selected>3桁 (001 〜 999)</option>
+                <option value="4">4桁 (0001 〜 9999)</option>
+                <option value="5">5桁 (00001 〜 99999)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="ticket-preview-box">
+            <div class="preview-left">
+              <span class="preview-label">採番プレビュー:</span>
+              <span class="ticket-preview-badge" id="setting-ticket-preview">CHG-2026-001</span>
+            </div>
+            <span class="preview-hint">※履歴件数に応じて自動的に連番がインクリメントされます</span>
+          </div>
+        </div>
+
+        <!-- 3. Ping 巡回設定 -->
+        <div class="setting-section">
+          <div class="setting-section-header">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            <h4>Ping 死活監視設定</h4>
+          </div>
+          
+          <div class="form-group toggle-group highlight-box">
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-auto-ping-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="toggle-label">
+              <span class="primary-text font-bold">定期自動 Ping 巡回を実行</span>
+              <span class="sub-text">指定した間隔で登録機器へ自動的に Ping を送信して死活ステータスを更新します</span>
+            </div>
+          </div>
+
+          <div class="ticket-rule-grid">
+            <div class="form-group">
+              <label for="setting-ping-interval">実行間隔</label>
+              <select id="setting-ping-interval">
+                <option value="10">10秒 (高速テスト)</option>
+                <option value="30" selected>30秒 (推奨)</option>
+                <option value="60">1分</option>
+                <option value="180">3分</option>
+                <option value="300">5分</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="setting-ping-timeout">タイムアウト</label>
+              <select id="setting-ping-timeout">
+                <option value="1000">1000 ms (1秒)</option>
+                <option value="1500" selected>1500 ms (推奨)</option>
+                <option value="3000">3000 ms (3秒)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 初期構築モード設定 -->
+        <div class="setting-section">
+          <div class="setting-section-header">
+            <span style="font-size:18px;margin-right:6px;">🚧</span>
+            <h4>初期構築モード (Setup Mode)</h4>
+          </div>
+          <p class="desc-text">初期データ登録や一括移行時に、変更履歴（チェンジログ台帳）への自動記録を停止します。</p>
+          
+          <div class="form-group toggle-group highlight-box">
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-setup-mode-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="toggle-label">
+              <span class="primary-text font-bold">初期構築モードを有効にする（履歴記録OFF）</span>
+              <span class="sub-text">ONの間は機器の追加・移動・編集を行っても履歴ログは生成されず、構成データ本体のみ保存されます</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-cancel-settings">キャンセル</button>
+        <button class="btn btn-primary" id="btn-save-settings">設定を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: ラック追加/編集 -->
+  <div class="modal-backdrop" id="modal-rack">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="modal-rack-title">新規ラック追加</h3>
+        <button class="btn-close" id="btn-close-rack-modal">×</button>
+      </div>
+      <form id="rack-form">
+        <div class="modal-body">
+          <input type="hidden" id="rack-form-id">
+          
+          <div class="form-group">
+            <label for="rack-form-name">ラック名 <span class="required">*</span></label>
+            <input type="text" id="rack-form-name" required placeholder="例: Rack A-03">
+          </div>
+
+          <div class="form-group">
+            <label for="rack-form-units">ラック高さ (U数)</label>
+            <select id="rack-form-units">
+              <option value="42" selected>42U (標準フルラック)</option>
+              <option value="48">48U (トールラック)</option>
+              <option value="24">24U (ハーフラック)</option>
+              <option value="12">12U (小型サーバーラック)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="rack-form-tags">ラック上部タグ (カンマ区切り)</label>
+            <input type="text" id="rack-form-tags" placeholder="例: Zone-B, DB Cluster, 2F">
+            <span class="helper-text">ラック上部にバッジとして表示されます</span>
+          </div>
+
+          <div class="form-group">
+            <label for="rack-form-max-power">ラック最大供給電力 / 契約上限 (W)</label>
+            <input type="number" id="rack-form-max-power" min="500" max="50000" step="100" value="3000" placeholder="例: 3000">
+            <span class="helper-text">※ラック内にUPSがマウントされている場合、UPSの合計定格出力容量が自動的に優先連動されます。</span>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-rack">キャンセル</button>
+          <button type="submit" class="btn btn-primary">ラックを作成</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- モーダル: インポート / エクスポート -->
+  <div class="modal-backdrop" id="modal-export-import">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>データのエクスポート / インポート</h3>
+        <button class="btn-close" id="btn-close-export">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="export-box">
+          <h4>JSON エクスポート</h4>
+          <p>現在の全ラックおよびサーバー設定をJSONファイルとして保存します。</p>
+          <button class="btn btn-secondary" id="btn-download-json">JSONダウンロード</button>
+        </div>
+
+        <div class="export-box">
+          <h4>JSON インポート</h4>
+          <p>保存したJSONファイルを読み込みます。</p>
+          <input type="file" id="input-import-json" accept=".json" style="display:none">
+          <button class="btn btn-secondary" id="btn-trigger-import">ファイルを選択してインポート</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 変更履歴管理台帳 -->
+  <div class="modal-backdrop" id="modal-history">
+    <div class="modal-dialog modal-xl-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon amber">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <path d="M12 8v4l3 3"></path>
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3.05 11a9 9 0 0 1 .5-2m-.5 2H7"></path>
+            </svg>
+          </div>
+          <div>
+            <h3>変更履歴・作業管理台帳</h3>
+            <span class="modal-subtitle">日付、管理番号、ホスト名、変更理由の一覧管理・記録</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn btn-sm btn-primary" id="btn-toggle-history-form">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>+ 履歴を追加</span>
+          </button>
+          <button class="btn btn-sm btn-secondary" id="btn-history-export-csv" title="変更履歴をCSV形式でダウンロード">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line>
+              <line x1="9" y1="15" x2="15" y2="15"></line>
+            </svg>
+            <span>CSV出力</span>
+          </button>
+          <button class="btn btn-sm btn-danger-outline" id="btn-clear-all-history" title="すべての変更履歴ログをクリア（初期化）します。※ラックや機器の配置データ本体は安全に保持されます">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            <span>履歴クリア</span>
+          </button>
+          <button class="btn-close" id="btn-close-history">×</button>
+        </div>
+      </div>
+      <div class="modal-body history-modal-body">
+        <!-- 新規登録・編集フォームセクション -->
+        <div class="history-form-card" id="history-form-card" style="display:none;">
+          <div class="history-form-header">
+            <span class="history-form-title" id="history-form-title">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;margin-right:6px;vertical-align:-2px;color:var(--accent-cyan);">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              <span id="history-form-title-text">新規変更履歴の登録</span>
+            </span>
+            <button type="button" class="btn-close-sm" id="btn-cancel-history-form">×</button>
+          </div>
+          <form id="history-entry-form">
+            <input type="hidden" id="hist-edit-log-id" value="">
+            <!-- 共通行1: 日付, 管理番号, 変更種別 -->
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="hist-date">日付 <span class="required">*</span></label>
+                <input type="date" id="hist-date" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="hist-ticket">管理番号 <span class="required">*</span> <span style="font-size:10.5px; opacity:0.75; font-weight:normal;">(自動採番)</span></label>
+                <input type="text" id="hist-ticket" placeholder="例: CHG-2026-004" required>
+              </div>
+              <div class="form-group flex-1">
+                <label for="hist-type">変更種別 <span class="required">*</span></label>
+                <select id="hist-type">
+                  <option value="add">新規設置 (Add)</option>
+                  <option value="move">移設・スロット変更 (Move)</option>
+                  <option value="remove">撤去・廃止 (Remove)</option>
+                  <option value="config">設定・IP変更 (Config)</option>
+                  <option value="maintenance">保守・部品交換 (Maintenance)</option>
+                  <option value="wiring">配線・結線変更 (Wiring)</option>
+                  <option value="other">その他 (Other)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- ラック図連動トグル -->
+            <div class="form-group toggle-group hist-sync-box">
+              <label class="toggle-switch">
+                <input type="checkbox" id="hist-sync-toggle" checked>
+                <span class="toggle-slider"></span>
+              </label>
+              <div class="toggle-label">
+                <span class="primary-text font-bold">ラック構成図（配置・設定）にも自動反映する</span>
+                <span class="sub-text">OFFにすると変更履歴の台帳記録のみを行います</span>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 新規設置 (Add) -->
+            <div id="hist-section-add" class="hist-dynamic-section">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="hist-add-rack">設置先ラック <span class="required">*</span></label>
+                  <select id="hist-add-rack"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-add-start-u">開始ユニット (U) <span class="required">*</span></label>
+                  <input type="number" id="hist-add-start-u" min="1" max="52" value="20">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-add-size-u">占有サイズ (U)</label>
+                  <input type="number" id="hist-add-size-u" min="1" max="20" value="1">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-add-side">設置面</label>
+                  <select id="hist-add-side">
+                    <option value="front">前面 (Front)</option>
+                    <option value="rear">背面 (Rear)</option>
+                    <option value="full">前後貫通</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="hist-add-type">機器タイプ</label>
+                  <select id="hist-add-type">
+                    <option value="rackmount">ラックマウントサーバー</option>
+                    <option value="nas">NAS / ストレージ装置</option>
+                    <option value="utm">UTM / 次世代FW</option>
+                    <option value="l3_switch">L3 コアスイッチ</option>
+                    <option value="l2_switch">L2 エッジスイッチ</option>
+                    <option value="router">ルーター</option>
+                    <option value="onu">ONU / 光終端装置 / モデム</option>
+                    <option value="mc">メディアコンバーター (MC)</option>
+                    <option value="ap">無線AP / Wi-Fi</option>
+                    <option value="tower">タワー / ワークステーション</option>
+                    <option value="desktop">卓上型ルーター / 小型スイッチ</option>
+                    <option value="hub">スイッチングハブ / 小型HUB (HUB)</option>
+                    <option value="laptop">ノートPC / クライアント (Laptop)</option>
+                    <option value="desktop_pc">デスクトップPC / 端末 (Desktop PC)</option>
+                    <option value="iot">IoT機器 / センサー (IoT)</option>
+                    <option value="pdu">PDU 電源ユニット</option>
+                    <option value="ups">UPS 無停電電源</option>
+                    <option value="shelf">棚板 (Shelf)</option>
+                    <option value="misc">その他機器 (Misc)</option>
+                  </select>
+                </div>
+                <div class="form-group flex-2">
+                  <label for="hist-add-name">機器名 / ホスト名 <span class="required">*</span></label>
+                  <input type="text" id="hist-add-name" placeholder="例: web-front-02">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-add-ip">IPアドレス</label>
+                  <input type="text" id="hist-add-ip" placeholder="例: 192.168.1.50">
+                </div>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 移設・移動 (Move) -->
+            <div id="hist-section-move" class="hist-dynamic-section" style="display:none;">
+              <div class="form-row">
+                <div class="form-group flex-2">
+                  <label for="hist-move-dev">移動対象の機器 <span class="required">*</span></label>
+                  <select id="hist-move-dev"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-move-rack">移動先ラック <span class="required">*</span></label>
+                  <select id="hist-move-rack"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-move-start-u">移動先開始U <span class="required">*</span></label>
+                  <input type="number" id="hist-move-start-u" min="1" max="52" value="10">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-move-side">移動先設置面</label>
+                  <select id="hist-move-side">
+                    <option value="front">前面 (Front)</option>
+                    <option value="rear">背面 (Rear)</option>
+                    <option value="full">前後貫通</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 撤去・廃止 (Remove) -->
+            <div id="hist-section-remove" class="hist-dynamic-section" style="display:none;">
+              <div class="form-group">
+                <label for="hist-remove-dev">撤去する対象機器 <span class="required">*</span></label>
+                <select id="hist-remove-dev"></select>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 設定変更 (Config) -->
+            <div id="hist-section-config" class="hist-dynamic-section" style="display:none;">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="hist-config-dev">対象機器 <span class="required">*</span></label>
+                  <select id="hist-config-dev"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-config-name">新 機器名/ホスト名</label>
+                  <input type="text" id="hist-config-name" placeholder="変更後の名前">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-config-ip">新 IPアドレス</label>
+                  <input type="text" id="hist-config-ip" placeholder="例: 192.168.1.100">
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-config-vip">新 VIP (仮想IP)</label>
+                  <input type="text" id="hist-config-vip" placeholder="例: 192.168.1.254">
+                </div>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 配線変更 (Wiring) -->
+            <div id="hist-section-wiring" class="hist-dynamic-section" style="display:none;">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="hist-wire-from-dev">接続元機器 <span class="required">*</span></label>
+                  <select id="hist-wire-from-dev"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-wire-from-port">接続元ポート</label>
+                  <select id="hist-wire-from-port"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-wire-to-dev">接続先機器 <span class="required">*</span></label>
+                  <select id="hist-wire-to-dev"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-wire-to-port">接続先ポート</label>
+                  <select id="hist-wire-to-port"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="hist-wire-color">ケーブル色</label>
+                  <select id="hist-wire-color">
+                    <option value="#38bdf8">🔵 ブルー</option>
+                    <option value="#22c55e">🟢 グリーン</option>
+                    <option value="#eab308">🟡 イエロー</option>
+                    <option value="#f97316">🟠 オレンジ</option>
+                    <option value="#ef4444">🔴 レッド</option>
+                    <option value="#a855f7">🟣 パープル</option>
+                    <option value="#64748b">⚫ グレー</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- 動的エリア: 保守/その他 (Maintenance / Other) -->
+            <div id="hist-section-general" class="hist-dynamic-section" style="display:none;">
+              <div class="form-row">
+                <div class="form-group flex-2">
+                  <label for="hist-gen-hostname">ホスト名 / 対象機器 <span class="required">*</span></label>
+                  <div class="hist-hostname-input-wrap">
+                    <input type="text" id="hist-gen-hostname" placeholder="例: web-front-01">
+                    <select id="hist-gen-device-select" class="hist-dev-select">
+                      <option value="">-- ラック機器から選択 --</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 共通行: 担当者 & 変更理由 -->
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label for="hist-operator">作業担当者</label>
+                <input type="text" id="hist-operator" placeholder="例: 山田 (インフラ担当)">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="hist-reason">変更理由・作業詳細 <span class="required">*</span></label>
+              <textarea id="hist-reason" rows="2" placeholder="例: Webクラスタ負荷増加に伴う24Uサーバー増設およびL2スイッチへのTrunk結線作業" required></textarea>
+            </div>
+
+            <div class="history-form-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-history-btn">キャンセル</button>
+              <button type="submit" class="btn btn-primary btn-sm" id="btn-save-history">
+                <span id="btn-save-history-text">登録 ＆ ラック図へ反映</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 初期構築モード時の通知バナー（履歴モーダル内） -->
+        <div class="history-setup-mode-banner" id="history-setup-mode-banner" style="display:none;">
+          <span class="banner-icon">🚧</span>
+          <span class="banner-text"><strong>初期構築モード（履歴記録OFF）が有効です:</strong> 機器の追加・移動・編集を行っても履歴ログは生成されません。</span>
+          <button type="button" class="btn btn-xs btn-amber" id="btn-banner-disable-setup-mode">通常モード（履歴ON）へ切替</button>
+        </div>
+
+        <!-- 検索・フィルターバー -->
+        <div class="history-filter-bar">
+          <div class="history-search-wrap">
+            <input type="text" id="history-search-input" placeholder="管理番号、ホスト名、変更理由、担当者で検索...">
+          </div>
+          <div class="history-type-filter-wrap">
+            <select id="history-type-filter">
+              <option value="all">すべての変更種別</option>
+              <option value="add">新規設置</option>
+              <option value="move">移設・移動</option>
+              <option value="remove">撤去・廃止</option>
+              <option value="config">設定変更</option>
+              <option value="maintenance">保守・交換</option>
+              <option value="wiring">配線変更</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div class="history-count-tag" id="history-count-badge">0 件</div>
+        </div>
+
+        <!-- 変更履歴テーブル一覧 -->
+        <div class="history-table-container">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th style="width: 105px;">日付</th>
+                <th style="width: 130px;">管理番号</th>
+                <th style="width: 170px;">ホスト名 / 対象機器</th>
+                <th style="width: 120px;">変更種別</th>
+                <th>変更理由・作業内容</th>
+                <th style="width: 110px;">担当者</th>
+                <th style="width: 120px; text-align: center;">申請書 / 操作</th>
+              </tr>
+            </thead>
+            <tbody id="history-table-body">
+              <!-- 動的レンダリング -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 障害影響シミュレーション (機能2) -->
+  <div class="modal-backdrop" id="modal-impact">
+    <div class="modal-dialog modal-lg-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon red">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <div>
+            <h3>障害影響シミュレーション (Impact Analysis)</h3>
+            <span class="modal-subtitle">指定機器の停止時に通信途絶する下流システムを分析</span>
+          </div>
+        </div>
+        <button class="btn-close" id="btn-close-impact">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="impact-setup-box">
+          <div class="form-group">
+            <label for="impact-target-select">障害発生 (停止) 対象のネットワーク機器 / PDU を選択</label>
+            <select id="impact-target-select" class="form-control-lg"></select>
+          </div>
+          <div class="impact-actions-row">
+            <button class="btn btn-danger" id="btn-run-impact-sim">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <span>シミュレーション実行 ＆ ラック上ハイライト</span>
+            </button>
+            <button class="btn btn-secondary" id="btn-clear-impact-sim" style="display:none;">
+              <span>シミュレーション解除</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="impact-results-section" id="impact-results-section" style="display:none;">
+          <div class="impact-results-header">
+            <h4>影響波及レポート</h4>
+            <span class="impact-count-badge" id="impact-affected-count">影響機器: 0台</span>
+          </div>
+          <div class="impact-table-wrap">
+            <table class="impact-table">
+              <thead>
+                <tr>
+                  <th>状態</th>
+                  <th>機器名</th>
+                  <th>IP / ホスト名</th>
+                  <th>所属ラック / 位置</th>
+                  <th>種別</th>
+                  <th>経由ポート</th>
+                </tr>
+              </thead>
+              <tbody id="impact-affected-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-close-impact-bottom">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 印刷用ラック収容レポート (機能3) -->
+  <div class="modal-backdrop modal-fullscreen-backdrop" id="modal-print-report">
+    <div class="modal-dialog modal-fullscreen-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+          </div>
+          <div>
+            <h3>ラック収容台帳 ＆ 印刷用レポート</h3>
+            <span class="modal-subtitle">設備一覧・IPアドレス・消費電力・配線台帳</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <div class="report-search-wrap">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="report-search-input" placeholder="ラック名、機器名、IP、管理番号で絞り込み..." class="report-search-input">
+            <span class="report-search-count" id="report-search-count" style="display:none;">0件</span>
+          </div>
+          <button class="btn btn-secondary" id="btn-report-csv">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span>CSV ダウンロード</span>
+          </button>
+          <button class="btn btn-primary" id="btn-do-print">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            <span>印刷 / PDF 出力</span>
+          </button>
+          <button class="btn btn-close" id="btn-close-print-report">×</button>
+        </div>
+      </div>
+      <div class="modal-body print-report-modal-body">
+        <div class="print-report-container" id="print-report-container">
+          <!-- JSで印刷用帳票テーブルを動的生成 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 各種申請書プレビュー ＆ 印刷 (追加申請書 / 廃棄申請書 / 変更申請書) -->
+  <div class="modal-backdrop modal-fullscreen-backdrop" id="modal-doc-form">
+    <div class="modal-dialog modal-fullscreen-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon purple" id="doc-modal-badge-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+          </div>
+          <div>
+            <h3 id="doc-modal-title">機器追加・設置申請書</h3>
+            <span class="modal-subtitle" id="doc-modal-subtitle">履歴レコードから自動生成された社内承認・データセンター作業申請書</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <div class="doc-type-switcher">
+            <label for="doc-type-select" style="font-size:12px; color:#94a3b8; margin-right:4px;">帳票種別:</label>
+            <select id="doc-type-select" class="form-select-sm">
+              <option value="add">機器設置・追加申請書</option>
+              <option value="remove">機器廃棄・撤去申請書</option>
+              <option value="change">構成変更・作業実施申請書</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" id="btn-copy-doc-text" title="テキスト形式でクリップボードにコピー">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>テキストコピー</span>
+          </button>
+          <button class="btn btn-primary" id="btn-print-doc">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="6 9 6 2 18 2 18 9"></polyline>
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+              <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            <span>印刷 / PDF 出力</span>
+          </button>
+          <button class="btn btn-close" id="btn-close-doc-form">×</button>
+        </div>
+      </div>
+      <div class="modal-body doc-form-modal-body">
+        <div class="doc-paper-container" id="doc-paper-container">
+          <!-- JSでA4帳票レイアウトを動的生成 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 対象機器の変更履歴 拡大表示ウィンドウ (画面中央) -->
+  <div class="modal-backdrop" id="modal-device-history-expand">
+    <div class="modal-dialog modal-xl-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon amber">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <path d="M12 8v4l3 3"></path>
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M3.05 11a9 9 0 0 1 .5-2m-.5 2H7"></path>
+            </svg>
+          </div>
+          <div>
+            <h3 id="dev-expand-hist-title">機器変更履歴詳細</h3>
+            <span class="modal-subtitle" id="dev-expand-hist-subtitle">この機器に関する全構成変更・作業履歴一覧</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn btn-sm btn-secondary" id="btn-dev-expand-export-csv" title="この機器の履歴をCSV形式でダウンロード">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="12" y1="18" x2="12" y2="12"></line>
+              <line x1="9" y1="15" x2="15" y2="15"></line>
+            </svg>
+            <span>CSV出力</span>
+          </button>
+          <button class="btn-close" id="btn-close-dev-expand-history">×</button>
+        </div>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px; max-height: 70vh; overflow-y: auto;">
+        <div class="history-table-container">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th style="width: 140px;">実施日時</th>
+                <th style="width: 130px;">管理番号</th>
+                <th style="width: 150px;">対象機器 / ホスト名</th>
+                <th style="width: 100px;">作業種別</th>
+                <th style="width: 130px;">作業担当者</th>
+                <th>変更理由・作業詳細</th>
+                <th style="width: 90px; text-align: center;">申請書</th>
+              </tr>
+            </thead>
+            <tbody id="dev-expand-history-table-body">
+              <!-- 動的レンダリング -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(56, 73, 100, 0.4);">
+        <span class="text-muted" id="dev-expand-history-summary" style="font-size: 12px;">合計 0 件の履歴</span>
+        <button type="button" class="btn btn-secondary" id="btn-close-dev-expand-history-bottom">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: 機器保管庫一覧 & 再設置 -->
+  <div class="modal-backdrop" id="modal-storage">
+    <div class="modal-dialog modal-xl-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div>
+            <h3>機器保管庫 (アンマウント・予備ストック一覧)</h3>
+            <span class="modal-subtitle">ラックから取り外した機器・予備ストックの一元管理と再配置</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <button type="button" class="btn btn-secondary" id="btn-storage-csv">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span>CSV ダウンロード</span>
+          </button>
+          <button class="btn-close" id="btn-close-storage-modal">×</button>
+        </div>
+      </div>
+      <div class="modal-body history-modal-body">
+        <!-- 検索・フィルターバー -->
+        <div class="history-filter-bar storage-filter-bar">
+          <div class="history-search-wrap">
+            <input type="text" id="storage-search-input" placeholder="管理番号、ホスト名/機器名、型番、元ラックで検索...">
+          </div>
+          <div class="history-count-tag" id="storage-summary-badge">0 件</div>
+        </div>
+
+        <!-- 保管庫テーブル一覧 -->
+        <div class="history-table-container storage-table-container">
+          <table class="history-table storage-table">
+            <thead>
+              <tr>
+                <th style="width: 120px;">管理番号</th>
+                <th style="width: 170px;">機器名 / ホスト名</th>
+                <th style="width: 130px;">種別</th>
+                <th>メーカー / 型番</th>
+                <th style="width: 70px; text-align: center;">サイズ</th>
+                <th style="width: 140px;">元ラック / U</th>
+                <th style="width: 140px;">保管日時</th>
+                <th style="width: 170px; text-align: center;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="storage-tbody">
+              <!-- JSで動的レンダリング -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <span class="text-muted" id="storage-footer-summary" style="font-size:12px;">保管中: 0台</span>
+        <button type="button" class="btn btn-secondary" id="btn-close-storage">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: その他の場所 機器一覧 -->
+  <div class="modal-backdrop" id="modal-other-location">
+    <div class="modal-dialog modal-xl-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-badge-icon cyan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+          </div>
+          <div>
+            <h3>その他の場所 (ラック外機器一覧)</h3>
+            <span class="modal-subtitle">会議室、各フロア、各デスク、支社等に配置されたPC・端末の一元管理</span>
+          </div>
+        </div>
+        <div class="modal-header-actions">
+          <button type="button" class="btn btn-primary" id="btn-add-other-loc-dev">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>機器を新規追加</span>
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-open-other-loc-columns" title="テーブルのカラム項目を追加・削除・編集">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>カラム設定</span>
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-other-loc-csv">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <span>CSV ダウンロード</span>
+          </button>
+          <button class="btn-close" id="btn-close-other-loc-modal">×</button>
+        </div>
+      </div>
+      <div class="modal-body history-modal-body">
+        <div class="history-filter-bar storage-filter-bar">
+          <div class="history-search-wrap">
+            <input type="text" id="other-loc-search-input" placeholder="デバイス名、メーカー、IP、設置場所、Office、備考で検索...">
+          </div>
+          <div class="history-count-tag" id="other-loc-summary-badge">0 件</div>
+        </div>
+
+        <div class="history-table-container storage-table-container">
+          <table class="history-table other-location-table" id="other-loc-table">
+            <thead id="other-loc-thead">
+              <!-- カラム設定に応じて動的生成 -->
+            </thead>
+            <tbody id="other-loc-tbody">
+              <!-- JSで動的レンダリング -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between; align-items:center;">
+        <span class="text-muted" id="other-loc-footer-summary" style="font-size:12px;">配置中: 0台</span>
+        <button type="button" class="btn btn-secondary" id="btn-close-other-loc">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: その他の場所 カラム設定画面 -->
+  <div class="modal-backdrop" id="modal-other-location-columns">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>その他の場所 カラム設定</h3>
+          <span class="modal-subtitle">一覧テーブルのカラム追加・削除・編集・並べ替え</span>
+        </div>
+        <button class="btn-close" id="btn-close-columns-modal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="columns-setting-section">
+          <div class="section-title-sm" style="font-weight:600; font-size:12px; color:#94a3b8; margin-bottom:8px;">現在の表示カラム一覧 (上下ボタンで順序変更、削除可能)</div>
+          <div class="columns-list-container" id="columns-list-container">
+            <!-- JSで動的リスト生成 -->
+          </div>
+        </div>
+
+        <div class="columns-setting-section" style="margin-top:20px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.1);">
+          <div class="section-title-sm" style="font-weight:600; font-size:12px; color:#38bdf8; margin-bottom:8px;">＋ 新しいカラムを追加</div>
+          <div class="form-row" style="margin-top:10px; gap:8px;">
+            <div class="form-group flex-2">
+              <label class="form-label" style="font-size:11px;">項目名 (表示ラベル) <span class="required">*</span></label>
+              <input type="text" id="new-col-name" class="form-control" placeholder="例: MACアドレス, 購入日, 保守期限">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" style="font-size:11px;">項目キー (半角英数) <span class="required">*</span></label>
+              <input type="text" id="new-col-key" class="form-control" placeholder="mac, warranty">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label" style="font-size:11px;">データ型</label>
+              <select id="new-col-type" class="form-control">
+                <option value="text">テキスト</option>
+                <option value="datetime">日時・日付</option>
+                <option value="ip">IPアドレス</option>
+                <option value="number">数値</option>
+              </select>
+            </div>
+          </div>
+          <div style="text-align:right; margin-top:8px;">
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-add-new-column">＋ カラムを追加</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:space-between;">
+        <button type="button" class="btn btn-secondary" id="btn-reset-default-columns">初期設定に戻す</button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-columns">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btn-save-columns">設定を保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- モーダル: その他の場所 機器追加/編集 -->
+  <div class="modal-backdrop" id="modal-other-location-edit">
+    <div class="modal-dialog modal-other-loc-dialog">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <svg style="width:18px;height:18px;color:#10b981;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+            <circle cx="12" cy="10" r="3"></circle>
+          </svg>
+          <h3 id="modal-other-loc-edit-title">その他の場所に機器を追加</h3>
+        </div>
+        <button type="button" class="btn-close" id="btn-close-other-loc-edit">×</button>
+      </div>
+      <form id="other-loc-device-form" onsubmit="return false;">
+        <input type="hidden" id="other-loc-dev-id">
+        <div class="modal-body other-loc-grid-body" id="other-loc-form-body">
+          <!-- カラム設定に基づいてフォーム項目を動的生成 (2列グリッド) -->
+        </div>
+        <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-other-loc-edit">キャンセル</button>
+          <button type="button" class="btn btn-primary" id="btn-save-other-loc-device">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- モーダル: 保管機器のラック設置 (Quick Deploy) -->
+  <div class="modal-backdrop" id="modal-deploy-storage">
+    <div class="modal-dialog modal-md">
+      <div class="modal-header">
+        <h3 id="modal-deploy-title">保管機器のラック設置</h3>
+        <button class="btn-close" id="btn-close-deploy-modal">×</button>
+      </div>
+      <form id="deploy-storage-form">
+        <div class="modal-body">
+          <input type="hidden" id="deploy-device-id">
+          <div class="deploy-device-preview" id="deploy-device-preview">
+            <!-- 機器情報プレビュー -->
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="deploy-target-rack">設置先ラック <span class="required">*</span></label>
+              <select id="deploy-target-rack" required></select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="deploy-start-u">開始スロット (開始U) <span class="required">*</span></label>
+              <input type="number" id="deploy-start-u" min="1" max="52" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="deploy-side">設置面</label>
+              <select id="deploy-side">
+                <option value="front">前面 (Front)</option>
+                <option value="rear">背面 (Rear)</option>
+                <option value="full">前後貫通 (Full Depth)</option>
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="deploy-slot-width">幅・配置</label>
+              <select id="deploy-slot-width">
+                <option value="full">フル幅 (標準 19インチ)</option>
+                <option value="half-1">ハーフ幅 (左列 / 列1)</option>
+                <option value="half-2">ハーフ幅 (右列 / 列2)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-deploy">キャンセル</button>
+          <button type="submit" class="btn btn-primary">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+            <span>ラックに配置する</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 機器詳細ホバーポップアップ (Tooltip) -->
+  <div class="device-hover-tooltip" id="device-hover-tooltip" style="display:none;"></div>
+
+  <!-- トースト通知 -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="app.js?v=20260914_v052_05"></script>
+</body>
+</html>
