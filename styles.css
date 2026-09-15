@@ -9757,10 +9757,21 @@ body.vlan-filtering .cable-line.vlan-match {
    ヘッダー レスポンシブ最適化 (Header Responsive Optimization)
    ========================================================================== */
 
-/* 全ブレークポイント共通: 縦崩れ・改行・ヘッダーはみ出しの完全防止 */
+/* 全ブレークポイント共通: 縦崩れ・改行の完全防止 ＆ ドロップダウン最前面化 */
 .app-header {
   flex-wrap: nowrap !important;
-  overflow: hidden !important;
+  overflow: visible !important;
+  z-index: 1000 !important;
+  position: relative !important;
+}
+
+.waffle-menu-container {
+  position: relative !important;
+  z-index: 1001 !important;
+}
+
+.waffle-dropdown {
+  z-index: 2000 !important;
 }
 
 .header-left,
