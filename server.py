@@ -35,9 +35,9 @@ async def lifespan(app: FastAPI):
     print("[FastAPI] Server shutting down.")
 
 app = FastAPI(
-    title="DataCenter Rack Manager v0.5.2",
+    title="DataCenter Rack Manager v0.6.1",
     description="FastAPI + SQLite + Real ICMP Ping + VLAN/Port IP & Floor External Cable Rack Management System",
-    version="0.5.2",
+    version="0.6.1",
     lifespan=lifespan
 )
 
@@ -255,7 +255,7 @@ if __name__ == "__main__":
         port = int(sys.argv[1])
 
     print(f"==================================================")
-    print(f"  DataCenter Rack Manager v5.1 (FastAPI + SQLite + VLAN)")
+    print(f"  DataCenter Rack Manager v0.6.1 (FastAPI + SQLite + VLAN)")
     print(f"  URL: http://localhost:{port}/")
     print(f"  API Docs: http://localhost:{port}/docs")
     print(f"==================================================")

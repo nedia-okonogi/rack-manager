@@ -93,9 +93,6 @@ Description=DataCenter Rack Manager Service
 After=network.target
 
 [Service]
-Type=simple
-User=ubuntu
-Group=ubuntu
 WorkingDirectory=/path/to/rack-manager
 ExecStart=/usr/bin/python3 /path/to/rack-manager/server.py 50081
 Restart=always
