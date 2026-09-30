@@ -8685,7 +8685,7 @@ function setupEventListeners() {
   if (elements.btnDownloadJson) {
     elements.btnDownloadJson.addEventListener('click', () => {
       const backupData = {
-        version: '5.1',
+        version: '0.6.1',
         exportedAt: new Date().toISOString(),
         racks: state.racks || [],
         cables: state.cables || [],

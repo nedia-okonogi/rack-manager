@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DataCenter Rack Manager v5 - FastAPI + SQLite Server
+DataCenter Rack Manager v0.6.1 - FastAPI + SQLite Server
 High performance REST API backend, real ICMP Ping execution, VLAN & Port IP Manager.
 """
 
@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="DataCenter Rack Manager v0.6.1",
-    description="FastAPI + SQLite + Real ICMP Ping + VLAN/Port IP & Floor External Cable Rack Management System",
+    description="FastAPI + SQLite + Real ICMP Ping + VLAN/Port IP Rack Management System",
     version="0.6.1",
     lifespan=lifespan
 )

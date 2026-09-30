@@ -1,8 +1,8 @@
-# DataCenter Rack Manager v5.1 (FastAPI + SQLite + VLAN & Port IP Manager)
+# DataCenter Rack Manager v0.6.1 (FastAPI + SQLite + VLAN & Port IP Manager)
 
-データセンター・サーバールーム向け ラック構成管理 ＆ 変更履歴双方向同期システム **Version 5.1**
+データセンター・サーバールーム向け ラック構成管理 ＆ 変更履歴双方向同期システム **Version 0.6.1**
 
-## 🌟 Version 5.1 改善点
+## 🌟 Version 0.6.1 改善点
 - **ラック内機器表示のレイアウト最適化**:
   - ホスト名（`device-hostname`）とIPアドレス（`device-ip` / `VIP`）の表示順を入れ替え、ホスト名を先頭に配置。
   - VIP登録時にもホスト名を先頭にし、続いてVIP・Mgmt IPを表示。
@@ -17,14 +17,14 @@
 
 またはコマンドプロンプト / PowerShell から:
 ```powershell
-cd d:\01.workspace\rack-manager-v5.1
+cd d:\01.workspace\rack-manager-v0.6.1
 python -m pip install -r requirements.txt
 python server.py 8005
 ```
 
 ### Linux / macOS
 ```bash
-cd /path/to/rack-manager-v5.1
+cd /path/to/rack-manager-v0.6.1
 chmod +x start.sh
 ./start.sh
 ```
@@ -36,14 +36,14 @@ chmod +x start.sh
 ---
 
 ## 📖 使い方マニュアル
-詳細な利用手順や画面操作、各機能の使い方については [USER_MANUAL.md](file:///d:/01.workspace/rack-manager-v5.1/USER_MANUAL.md) をご覧ください。
+詳細な利用手順や画面操作、各機能の使い方については [USER_MANUAL.md](file:///d:/01.workspace/rack-manager-v0.6.1/USER_MANUAL.md) をご覧ください。
 
 ---
 
 ## 📂 ディレクトリ構成
 
 ```
-rack-manager-v5.1/
+rack-manager-v0.6.1/
 ├── server.py              # FastAPI メインアプリケーション (REST API + 静的配信 + Ping)
 ├── database.py            # SQLite テーブル定義・マイグレーション・CRUD処理
 ├── rack_manager.db        # SQLite データベース実体 (初回起動時に自動生成)
