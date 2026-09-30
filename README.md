@@ -22,16 +22,67 @@ python -m pip install -r requirements.txt
 python server.py 8005
 ```
 
-### Linux / macOS
+### Linux / macOS (手動起動)
 ```bash
 cd /path/to/rack-manager-v0.6.1
 chmod +x start.sh
 ./start.sh
 ```
 
-ブラウザで以下のURLを開きます:
-- **Web UI アプリケーション**: [http://localhost:8005/](http://localhost:8005/)
-- **FastAPI インタラクティブAPI仕様書**: [http://localhost:8005/docs](http://localhost:8005/docs)
+### 🐧 Linux (systemd による自動起動・常駐サービス化)
+本番環境や常時稼働サーバーでは、`systemd` サービスとして登録することで、OS起動時の自動立ち上げや異常終了時の自動再起動が可能になります。
+
+#### 1. ユニットファイルを作成
+`/etc/systemd/system/rack-manager.service` を作成します。
+
+```ini
+[Unit]
+Description=DataCenter Rack Manager FastAPI Server
+After=network.target
+
+[Service]
+WorkingDirectory=/srv/rack-manager-v0.6.1
+
+ExecStart=/usr/bin/python3 /srv/rack-manager-v0.6.1/server.py 50081
+
+Restart=always
+RestartSec=5
+
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 2. サービスを有効化＆起動
+```bash
+# systemd の設定をリロード
+sudo systemctl daemon-reload
+
+# 自動起動を有効化して即時起動
+sudo systemctl enable --now rack-manager
+
+# 稼働ステータス確認
+sudo systemctl status rack-manager
+```
+
+#### 3. ログの確認・停止・再起動
+```bash
+# リアルタイムログ確認
+sudo journalctl -u rack-manager -f
+
+# 再起動
+sudo systemctl restart rack-manager
+
+# 停止
+sudo systemctl stop rack-manager
+```
+
+---
+
+ブラウザで以下のURLを開きます（※ポートは指定したもの、systemd例では `50081`）:
+- **Web UI アプリケーション**: [http://localhost:50081/](http://localhost:50081/) (手動デフォルトは `8005`)
+- **FastAPI インタラクティブAPI仕様書**: [http://localhost:50081/docs](http://localhost:50081/docs)
 
 ---
 
