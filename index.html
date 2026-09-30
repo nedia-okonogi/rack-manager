@@ -7,11 +7,11 @@
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>DataCenter Rack Manager v0.5.3 - L3/VLAN & Floor External Cable Manager</title>
+  <title>DataCenter Rack Manager v5 - L3/Router VLAN & Port IP Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260915_v053_03">
+  <link rel="stylesheet" href="styles.css?v=20260930_v51_03">
 </head>
 <body class="dark-theme">
 
@@ -71,16 +71,9 @@
 
     <!-- アクションボタン群 -->
     <div class="header-actions">
-      <!-- 🚧 初期構築モード（履歴記録OFF）トグル -->
-      <button class="btn btn-setup-mode" id="btn-toggle-setup-mode" title="初期構築モード: ONにすると機器の追加・編集・移動・配線時に変更履歴ログへの自動記録を停止します（データ本体のみ保存）">
-        <span class="setup-mode-icon">🚧</span>
-        <span class="setup-mode-text">初期構築モード</span>
-        <span class="setup-mode-pill" id="setup-mode-pill">OFF</span>
-      </button>
-
       <div class="view-toggle-group">
-        <button class="btn-toggle active" id="btn-global-front" title="全ラックを前面表示">前面<span class="toggle-subtext"> (Front)</span></button>
-        <button class="btn-toggle" id="btn-global-rear" title="全ラックを背面表示">背面<span class="toggle-subtext"> (Rear)</span></button>
+        <button class="btn-toggle active" id="btn-global-front" title="全ラックを前面表示">前面 (Front)</button>
+        <button class="btn-toggle" id="btn-global-rear" title="全ラックを背面表示">背面 (Rear)</button>
       </div>
 
       <!-- 元に戻す・やり直す (Undo / Redo) -->
@@ -90,14 +83,14 @@
             <polyline points="1 4 1 10 7 10"></polyline>
             <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
           </svg>
-          <span class="btn-text">元に戻す</span>
+          <span>元に戻す</span>
         </button>
         <button class="btn btn-secondary btn-undo-redo" id="btn-redo" title="やり直す (Ctrl+Y)" disabled>
           <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10"></polyline>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
           </svg>
-          <span class="btn-text">やり直す</span>
+          <span>やり直す</span>
         </button>
       </div>
 
@@ -106,7 +99,7 @@
           <line x1="12" y1="5" x2="12" y2="19"></line>
           <line x1="5" y1="12" x2="19" y2="12"></line>
         </svg>
-        <span class="btn-text">ラック追加</span>
+        <span>ラック追加</span>
       </button>
 
       <!-- ワッフルメニュー (9-dots アプリケーションメニュー) -->
@@ -1071,101 +1064,46 @@
             </div>
 
             <div class="prop-quick-cable-box">
-              <div class="cable-target-type-tabs">
-                <button type="button" class="btn-cable-type-tab active" id="btn-cable-type-device" data-type="device">🏢 ラック内機器</button>
-                <button type="button" class="btn-cable-type-tab" id="btn-cable-type-external" data-type="external">🌐 フロア・外部配線 (Floor/WAN)</button>
+              <div class="prop-cable-search-wrap">
+                <input type="text" id="prop-cable-target-search" class="prop-cable-search-input" placeholder="🔍 接続先機器/IP/タグ/ラックで瞬時絞り込み..." autocomplete="off">
               </div>
-
-              <!-- 1. ラック内機器への接続UI -->
-              <div id="prop-cable-target-device-section">
-                <div class="prop-cable-search-wrap">
-                  <input type="text" id="prop-cable-target-search" class="prop-cable-search-input" placeholder="🔍 接続先機器/IP/タグ/ラックで瞬時絞り込み..." autocomplete="off">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="prop-cable-from-port">自機器ポート</label>
+                  <select id="prop-cable-from-port"></select>
                 </div>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-from-port">自機器ポート</label>
-                    <select id="prop-cable-from-port"></select>
-                  </div>
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-target-dev">接続先機器 <span id="prop-cable-target-count" class="badge-count"></span></label>
-                    <select id="prop-cable-target-dev"></select>
-                  </div>
+                <div class="form-group flex-1">
+                  <label for="prop-cable-target-dev">接続先機器 <span id="prop-cable-target-count" class="badge-count"></span></label>
+                  <select id="prop-cable-target-dev"></select>
                 </div>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-to-port">接続先ポート</label>
-                    <select id="prop-cable-to-port"></select>
-                  </div>
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-color-select">ケーブルカラー</label>
-                    <div class="prop-cable-color-wrapper">
-                      <select id="prop-cable-color-select" style="flex:1;">
-                        <option value="#38bdf8">🔵 ブルー (標準LAN)</option>
-                        <option value="#22c55e">🟢 グリーン (基幹/サーバー)</option>
-                        <option value="#eab308">🟡 イエロー (DMZ/境界)</option>
-                        <option value="#f97316">🟠 オレンジ (HA/冗長心線)</option>
-                        <option value="#ef4444">🔴 レッド (WAN/セキュリティ)</option>
-                        <option value="#a855f7">🟣 パープル (管理/Mgmt)</option>
-                        <option value="#ec4899">🌸 ピンク (特殊用途)</option>
-                        <option value="#e2e8f0">⚪ ホワイト (SAN/ストレージ)</option>
-                        <option value="#64748b">⚫ グレー (予備/その他)</option>
-                      </select>
-                      <label class="prop-color-picker-label" title="カスタムカラー指定">
-                        <input type="color" id="prop-cable-custom-color" class="prop-color-input-dot" value="#38bdf8">
-                        <span class="color-preview-circle" id="prop-cable-color-preview" style="background:#38bdf8;"></span>
-                      </label>
-                    </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label for="prop-cable-to-port">接続先ポート</label>
+                  <select id="prop-cable-to-port"></select>
+                </div>
+                <div class="form-group flex-1">
+                  <label for="prop-cable-color-select">ケーブルカラー</label>
+                  <div class="prop-cable-color-wrapper">
+                    <select id="prop-cable-color-select" style="flex:1;">
+                      <option value="#38bdf8">🔵 ブルー (標準LAN)</option>
+                      <option value="#22c55e">🟢 グリーン (基幹/サーバー)</option>
+                      <option value="#eab308">🟡 イエロー (DMZ/境界)</option>
+                      <option value="#f97316">🟠 オレンジ (HA/冗長心線)</option>
+                      <option value="#ef4444">🔴 レッド (WAN/セキュリティ)</option>
+                      <option value="#a855f7">🟣 パープル (管理/Mgmt)</option>
+                      <option value="#ec4899">🌸 ピンク (特殊用途)</option>
+                      <option value="#e2e8f0">⚪ ホワイト (SAN/ストレージ)</option>
+                      <option value="#64748b">⚫ グレー (予備/その他)</option>
+                    </select>
+                    <label class="prop-color-picker-label" title="カスタムカラー指定">
+                      <input type="color" id="prop-cable-custom-color" class="prop-color-input-dot" value="#38bdf8">
+                      <span class="color-preview-circle" id="prop-cable-color-preview" style="background:#38bdf8;"></span>
+                    </label>
                   </div>
                 </div>
               </div>
-
-              <!-- 2. フロア・外部配線UI -->
-              <div id="prop-cable-target-external-section" style="display:none;">
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-ext-from-port">自機器ポート</label>
-                    <select id="prop-cable-ext-from-port"></select>
-                  </div>
-                  <div class="form-group flex-2">
-                    <label for="prop-cable-ext-target">フロア / 外部接続先名 <span class="required">*</span></label>
-                    <input type="text" id="prop-cable-ext-target" placeholder="例: 3F 執務室 島A-04, 2F 会議室HUB, NTT光回線">
-                  </div>
-                </div>
-                <div class="form-group" style="margin-bottom:6px;">
-                  <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:3px;">クイック候補:</label>
-                  <div class="quick-floor-tags-container">
-                    <button type="button" class="btn-quick-floor-tag" data-target="3F 執務エリア">3F 執務エリア</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="2F 会議室">2F 会議室</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="1F 受付 / エントランス">1F 受付</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="フロアHUB / スイッチ">フロアHUB</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="情報コンセント #">情報コンセント</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="NTT光回線 / WAN1">NTT光(WAN)</button>
-                    <button type="button" class="btn-quick-floor-tag" data-target="無線AP / 天井">無線AP</button>
-                  </div>
-                </div>
-                <div class="form-row">
-                  <div class="form-group flex-1">
-                    <label for="prop-cable-ext-color-select">ケーブルカラー</label>
-                    <div class="prop-cable-color-wrapper">
-                      <select id="prop-cable-ext-color-select" style="flex:1;">
-                        <option value="#22c55e">🟢 グリーン (フロア配線/Uplink)</option>
-                        <option value="#38bdf8">🔵 ブルー (標準LAN)</option>
-                        <option value="#ef4444">🔴 レッド (WAN/外部回線)</option>
-                        <option value="#eab308">🟡 イエロー (DMZ/ゲスト)</option>
-                        <option value="#f97316">🟠 オレンジ (拠点間VPN)</option>
-                        <option value="#a855f7">🟣 パープル (AP/無線)</option>
-                        <option value="#64748b">⚫ グレー (その他)</option>
-                      </select>
-                      <label class="prop-color-picker-label" title="カスタムカラー指定">
-                        <input type="color" id="prop-cable-ext-custom-color" class="prop-color-input-dot" value="#22c55e">
-                        <span class="color-preview-circle" id="prop-cable-ext-color-preview" style="background:#22c55e;"></span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-row" style="margin-top:6px;">
+              <div class="form-row" style="margin-top:4px;">
                 <button type="button" class="btn btn-secondary" id="btn-prop-add-cable" style="width:100%;">＋ 結線を追加</button>
               </div>
             </div>
@@ -1515,26 +1453,6 @@
           </div>
         </div>
 
-        <!-- 4. 初期構築モード設定 -->
-        <div class="setting-section">
-          <div class="setting-section-header">
-            <span style="font-size:18px;margin-right:6px;">🚧</span>
-            <h4>初期構築モード (Setup Mode)</h4>
-          </div>
-          <p class="desc-text">初期データ登録や一括移行時に、変更履歴（チェンジログ台帳）への自動記録を停止します。</p>
-          
-          <div class="form-group toggle-group highlight-box">
-            <label class="toggle-switch">
-              <input type="checkbox" id="setting-setup-mode-toggle">
-              <span class="toggle-slider"></span>
-            </label>
-            <div class="toggle-label">
-              <span class="primary-text font-bold">初期構築モードを有効にする（履歴記録OFF）</span>
-              <span class="sub-text">ONの間は機器の追加・移動・編集を行っても履歴ログは生成されず、構成データ本体のみ保存されます</span>
-            </div>
-          </div>
-        </div>
-
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btn-cancel-settings">キャンセル</button>
@@ -1647,15 +1565,6 @@
               <line x1="9" y1="15" x2="15" y2="15"></line>
             </svg>
             <span>CSV出力</span>
-          </button>
-          <button class="btn btn-sm btn-danger-outline" id="btn-clear-all-history" title="すべての変更履歴ログをクリア（初期化）します。※ラックや機器の配置データ本体は安全に保持されます">
-            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              <line x1="10" y1="11" x2="10" y2="17"></line>
-              <line x1="14" y1="11" x2="14" y2="17"></line>
-            </svg>
-            <span>履歴クリア</span>
           </button>
           <button class="btn-close" id="btn-close-history">×</button>
         </div>
@@ -1896,13 +1805,6 @@
               </button>
             </div>
           </form>
-        </div>
-
-        <!-- 初期構築モード時の通知バナー（履歴モーダル内） -->
-        <div class="history-setup-mode-banner" id="history-setup-mode-banner" style="display:none;">
-          <span class="banner-icon">🚧</span>
-          <span class="banner-text"><strong>初期構築モード（履歴記録OFF）が有効です:</strong> 機器の追加・移動・編集を行っても履歴ログは生成されません。</span>
-          <button type="button" class="btn btn-xs btn-amber" id="btn-banner-disable-setup-mode">通常モード（履歴ON）へ切替</button>
         </div>
 
         <!-- 検索・フィルターバー -->
@@ -2444,6 +2346,7 @@
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Scripts -->
-  <script src="app.js?v=20260914_v052_05"></script>
+  <script src="app.js?v=20260930_v51_02"></script>
 </body>
 </html>
+

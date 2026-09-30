@@ -383,8 +383,6 @@ function refreshElements() {
   elements.autoPingIndicator = document.getElementById('auto-ping-indicator');
   elements.autoPingText = document.getElementById('auto-ping-text');
   elements.headerGlobalPingToggle = document.getElementById('header-global-ping-toggle');
-  elements.btnToggleSetupMode = document.getElementById('btn-toggle-setup-mode');
-  elements.setupModePill = document.getElementById('setup-mode-pill');
   elements.btnGlobalFront = document.getElementById('btn-global-front');
   elements.btnGlobalRear = document.getElementById('btn-global-rear');
   elements.btnUndo = document.getElementById('btn-undo');
@@ -475,15 +473,6 @@ function refreshElements() {
   elements.propCableColorSelect = document.getElementById('prop-cable-color-select');
   elements.propCableCustomColor = document.getElementById('prop-cable-custom-color');
   elements.propCableColorPreview = document.getElementById('prop-cable-color-preview');
-  elements.btnCableTypeDevice = document.getElementById('btn-cable-type-device');
-  elements.btnCableTypeExternal = document.getElementById('btn-cable-type-external');
-  elements.propCableTargetDeviceSection = document.getElementById('prop-cable-target-device-section');
-  elements.propCableTargetExternalSection = document.getElementById('prop-cable-target-external-section');
-  elements.propCableExtFromPort = document.getElementById('prop-cable-ext-from-port');
-  elements.propCableExtTarget = document.getElementById('prop-cable-ext-target');
-  elements.propCableExtColorSelect = document.getElementById('prop-cable-ext-color-select');
-  elements.propCableExtCustomColor = document.getElementById('prop-cable-ext-custom-color');
-  elements.propCableExtColorPreview = document.getElementById('prop-cable-ext-color-preview');
   elements.btnPropAddCable = document.getElementById('btn-prop-add-cable');
   elements.propPingEnabled = document.getElementById('prop-ping-enabled');
   elements.propNotes = document.getElementById('prop-notes');
@@ -602,11 +591,6 @@ function refreshElements() {
 
   elements.histOperator = document.getElementById('hist-operator');
   elements.histReason = document.getElementById('hist-reason');
-  elements.btnHistoryExportCsv = document.getElementById('btn-history-export-csv');
-  elements.btnClearAllHistory = document.getElementById('btn-clear-all-history');
-  elements.historySetupModeBanner = document.getElementById('history-setup-mode-banner');
-  elements.btnBannerDisableSetupMode = document.getElementById('btn-banner-disable-setup-mode');
-  elements.settingSetupModeToggle = document.getElementById('setting-setup-mode-toggle');
   elements.historySearchInput = document.getElementById('history-search-input');
   elements.historyTypeFilter = document.getElementById('history-type-filter');
   elements.historyCountBadge = document.getElementById('history-count-badge');
@@ -1042,17 +1026,15 @@ function setupZoomAndPan() {
     }
   }, { passive: false });
 
-  // 2. マウスドラッグによる自由パン移動 & 余白クリックでプロパティ閉じる
+  // 2. マウスドラッグによる自由パン移動
   let isPanning = false;
-  let hasMoved = false;
   let startX = 0, startY = 0;
   let initialPanX = 0, initialPanY = 0;
 
   viewport.addEventListener('mousedown', (e) => {
-    const isInteractive = e.target.closest('.mounted-device-grid-item, .palette-item, .rack-card, .rack-slot-cell, .sub-slot-empty, button, input, select, textarea, .property-panel, .modal-backdrop, .storage-depot-widget, .storage-row, .storage-item-card, .other-location-widget');
+    const isInteractive = e.target.closest('.mounted-device-grid-item, .palette-item, .rack-card, .rack-slot-cell, .sub-slot-empty, button, input, select, .property-panel, .modal-backdrop, .storage-depot-widget, .storage-row, .storage-item-card');
     if (e.button === 1 || (!isInteractive && e.button === 0)) {
       isPanning = true;
-      hasMoved = false;
       startX = e.clientX;
       startY = e.clientY;
       initialPanX = state.panX;
@@ -1063,35 +1045,15 @@ function setupZoomAndPan() {
 
   window.addEventListener('mousemove', (e) => {
     if (!isPanning) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-      hasMoved = true;
-    }
-    state.panX = initialPanX + dx;
-    state.panY = initialPanY + dy;
+    state.panX = initialPanX + (e.clientX - startX);
+    state.panY = initialPanY + (e.clientY - startY);
     updateTransform();
   });
 
-  window.addEventListener('mouseup', (e) => {
+  window.addEventListener('mouseup', () => {
     if (isPanning) {
       isPanning = false;
       viewport.style.cursor = 'default';
-      
-      // パン移動を行わずに何もないキャンバスをクリックした場合、プロパティパネルを閉じる
-      if (!hasMoved && e.button === 0) {
-        const isInteractive = e.target.closest('.mounted-device-grid-item, .palette-item, .property-panel, button, input, select, textarea, .modal-backdrop, .storage-depot-widget, .storage-row, .storage-item-card, .other-location-widget');
-        if (!isInteractive && elements.propertyPanel && elements.propertyPanel.classList.contains('open')) {
-          closePropertyPanel();
-        }
-      }
-    }
-  });
-
-  viewport.addEventListener('click', (e) => {
-    const isInteractive = e.target.closest('.mounted-device-grid-item, .palette-item, .property-panel, button, input, select, textarea, .modal-backdrop, .storage-depot-widget, .storage-row, .storage-item-card, .other-location-widget');
-    if (!isInteractive && elements.propertyPanel && elements.propertyPanel.classList.contains('open')) {
-      closePropertyPanel();
     }
   });
 
@@ -1152,76 +1114,8 @@ async function checkServerAndLoadData() {
     }
   });
   cleanupOrphanCables();
-  ensureAllDevicesHaveTicketNo();
+  syncChangeLogsWithCurrentDevices();
   updateCableCountBadge();
-  updateSetupModeUI();
-}
-
-function ensureAllDevicesHaveTicketNo() {
-  const rule = state.settings.ticketRule || { prefix: 'CHG', datePattern: 'YYYY', digits: 3, nextSeq: 1 };
-  const prefix = (rule.prefix || 'CHG').trim();
-  const datePattern = rule.datePattern || 'YYYY';
-  const digits = parseInt(rule.digits, 10) || 3;
-
-  const usedTicketNos = new Set();
-  let currentSeq = 1;
-  let changed = false;
-
-  // 既存の changeLogs から使用中チケット番号を収集
-  (state.changeLogs || []).forEach((log) => {
-    if (log.ticketNo) {
-      usedTicketNos.add(log.ticketNo);
-      const parts = String(log.ticketNo).split('-');
-      const parsedNum = parseInt(parts[parts.length - 1], 10);
-      if (!isNaN(parsedNum) && parsedNum >= currentSeq) {
-        currentSeq = parsedNum + 1;
-      }
-    }
-  });
-
-  function getUniqueSeqTicket() {
-    while (true) {
-      const t = formatTicketNo(prefix, datePattern, digits, currentSeq);
-      currentSeq++;
-      if (!usedTicketNos.has(t)) {
-        usedTicketNos.add(t);
-        return t;
-      }
-    }
-  }
-
-  // ラック内の機器をチェック（未設定または重複がある場合は一意な連番を割り当て）
-  (state.racks || []).forEach((rack) => {
-    (rack.devices || []).forEach((dev) => {
-      if (!dev.ticketNo || usedTicketNos.has(dev.ticketNo)) {
-        const newTicket = getUniqueSeqTicket();
-        dev.ticketNo = newTicket;
-        changed = true;
-      } else {
-        usedTicketNos.add(dev.ticketNo);
-        const parts = String(dev.ticketNo).split('-');
-        const parsedNum = parseInt(parts[parts.length - 1], 10);
-        if (!isNaN(parsedNum) && parsedNum >= currentSeq) {
-          currentSeq = parsedNum + 1;
-        }
-      }
-    });
-  });
-
-  // 保管庫の機器もチェック
-  (state.storageDevices || []).forEach((dev) => {
-    if (!dev.ticketNo || usedTicketNos.has(dev.ticketNo)) {
-      const newTicket = getUniqueSeqTicket();
-      dev.ticketNo = newTicket;
-      changed = true;
-    } else {
-      usedTicketNos.add(dev.ticketNo);
-    }
-  });
-
-  if (changed) {
-    saveData();
-  }
 }
 
 function cleanupOrphanCables() {
@@ -1237,6 +1131,72 @@ function cleanupOrphanCables() {
   }
   updateCableCountBadge();
 }
+
+/**
+ * 既存の変更履歴 (changeLogs) とラック内機器の最新状態 (ホスト名・IP・スナップショット) を双方向同期
+ * ※追加申請書や変更履歴一覧で、初期仮名のまま残ることを防ぐ
+ */
+function syncChangeLogsWithCurrentDevices() {
+  if (!state.changeLogs || !Array.isArray(state.changeLogs) || !state.racks) return;
+  let hasModified = false;
+
+  state.changeLogs.forEach((log) => {
+    let dev = null;
+    let rack = null;
+    if (log.deviceId) {
+      const found = findDevice(log.deviceId);
+      if (found) {
+        dev = found.device;
+        rack = found.rack;
+      }
+    }
+    if (!dev && log.hostname) {
+      for (const r of state.racks) {
+        const d = r.devices.find((item) => item.hostname === log.hostname || item.name === log.hostname);
+        if (d) {
+          dev = d;
+          rack = r;
+          break;
+        }
+      }
+    }
+
+    if (dev) {
+      // 1. type === 'add'（新規設置・追加申請）ログの最新化
+      if (log.type === 'add') {
+        const currentDisplayName = dev.name || dev.hostname;
+        if (currentDisplayName && log.hostname !== currentDisplayName && log.hostname !== dev.hostname) {
+          log.hostname = dev.hostname || dev.name;
+          hasModified = true;
+        }
+        if (dev.ticketNo && log.ticketNo !== dev.ticketNo) {
+          log.ticketNo = dev.ticketNo;
+          hasModified = true;
+        }
+        // スナップショットのIPや名称が未設定・初期仮名だった場合に最新化
+        const snap = log.deviceSnapshot;
+        if (!snap || !snap.ip || snap.ip !== dev.ip || snap.name !== dev.name || snap.hostname !== dev.hostname) {
+          log.deviceSnapshot = captureDeviceSnapshot(dev);
+          hasModified = true;
+        }
+        // 初期デフォルト理由（Server-22U など）が残っている場合、最新名称・IPを反映
+        if (log.reason && (log.reason.includes('Server-') || log.reason.startsWith('[新規設置]'))) {
+          const rackName = rack ? rack.name : '指定ラック';
+          const newReason = `[新規設置] ${dev.name}${dev.hostname && dev.hostname !== dev.name ? ' (' + dev.hostname + ')' : ''} (${dev.sizeU}U) を ${rackName} の ${dev.startU}U に配置 (IP: ${dev.ip || '未設定'})`;
+          if (log.reason !== newReason) {
+            log.reason = newReason;
+            hasModified = true;
+          }
+        }
+      }
+    }
+  });
+
+  if (hasModified) {
+    console.log('[ChangeLog Sync] 既存の追加申請ログを最新の機器情報 (ホスト名/IP) と同期しました');
+  }
+}
+
 
 async function loadDataWithJsonFallback() {
   // サーバー接続不可時: data.json または組み込みデフォルトデータから読み込む (業務データはlocalStorageには保存しない)
@@ -1254,6 +1214,7 @@ async function loadDataWithJsonFallback() {
         state.settings = { ...defaultData.settings, ...(data.settings || {}) };
         state.rackLayoutMode = state.settings.rackLayoutMode || '1';
         console.log('[Data] Loaded from data.json');
+        syncChangeLogsWithCurrentDevices();
         return;
       }
     }
@@ -1271,6 +1232,7 @@ async function loadDataWithJsonFallback() {
   state.settings = JSON.parse(JSON.stringify(defaultData.settings));
   state.rackLayoutMode = '1';
   console.log('[Data] Using built-in default data');
+  syncChangeLogsWithCurrentDevices();
 }
 
 function loadFromLocalStorage() {
@@ -3135,48 +3097,31 @@ function renderRacks() {
     slotsGrid.className = 'rack-slots-grid';
 
     // 表示面に該当する機器および反対面のゴースト機器を収集
-    const visibleDevices = [];
-    const occupiedMatrix = {}; // occupiedMatrix[u][colIndex_1_to_6] = true
+    const primaryDevices = [];
+    const ghostDevices = [];
+    const occupiedU = new Set();
+    const slotDevicesMap = {};
 
-    for (let u = 1; u <= rack.units; u++) {
-      occupiedMatrix[u] = [false, false, false, false, false, false, false]; // 1-indexed (1..6)
-    }
-
-    function markOccupiedCols(dev) {
-      const sz = dev.sizeU || 1;
-      const topU = dev.startU + sz - 1;
-      const w = dev.slotWidth || 'full';
-      const col = parseInt(dev.slotCol, 10) || 1;
-
-      for (let u = dev.startU; u <= topU; u++) {
-        if (!occupiedMatrix[u]) continue;
-        if (w === 'half') {
-          const startCol = col === 2 ? 4 : 1;
-          for (let c = startCol; c < startCol + 3; c++) occupiedMatrix[u][c] = true;
-        } else if (w === 'third') {
-          const startCol = col === 3 ? 5 : (col === 2 ? 3 : 1);
-          for (let c = startCol; c < startCol + 2; c++) occupiedMatrix[u][c] = true;
-        } else {
-          // full
-          for (let c = 1; c <= 6; c++) occupiedMatrix[u][c] = true;
-        }
-      }
-    }
-
-    // 表示面に該当する機器
     rack.devices.forEach((dev) => {
       const devSide = dev.side || 'front';
       const isPrimary = isFront
         ? devSide === 'front' || devSide === 'full'
         : devSide === 'rear' || devSide === 'full';
 
-      if (isPrimary && dev.startU >= 1 && dev.startU + (dev.sizeU || 1) - 1 <= rack.units) {
-        visibleDevices.push(dev);
-        markOccupiedCols(dev);
+      if (isPrimary && dev.startU >= 1 && dev.startU + dev.sizeU - 1 <= rack.units) {
+        primaryDevices.push(dev);
+        const topU = dev.startU + dev.sizeU - 1;
+        for (let u = dev.startU; u <= topU; u++) {
+          occupiedU.add(u);
+        }
+        if (!slotDevicesMap[topU]) {
+          slotDevicesMap[topU] = [];
+        }
+        slotDevicesMap[topU].push(dev);
       }
     });
 
-    // 跨ぎ配線（Front ⇄ Rear、Full ⇄ Rear、Full ⇄ Front）を持つ反対側デバイスのIDを収集
+    // 跨ぎ配線（Front ⇄ Rear）を持つ反対側デバイスのIDを収集
     const crossConnectedDeviceIds = new Set();
     (state.cables || []).forEach((c) => {
       const fInfo = findDevice(c.fromDeviceId);
@@ -3184,52 +3129,42 @@ function renderRacks() {
       if (fInfo && tInfo) {
         const fSide = fInfo.device.side || 'front';
         const tSide = tInfo.device.side || 'front';
-
-        // 1. 前面 ⇄ 背面
         if ((fSide === 'front' && tSide === 'rear') || (fSide === 'rear' && tSide === 'front')) {
           crossConnectedDeviceIds.add(c.fromDeviceId);
           crossConnectedDeviceIds.add(c.toDeviceId);
         }
-        // 2. 貫通 (Full) ⇄ 背面 (Rear): 前面ビュー時に背面機器をスマートゴースト表示
-        else if (fSide === 'full' && tSide === 'rear') {
-          crossConnectedDeviceIds.add(tInfo.device.id);
-        } else if (fSide === 'rear' && tSide === 'full') {
-          crossConnectedDeviceIds.add(fInfo.device.id);
-        }
-        // 3. 貫通 (Full) ⇄ 前面 (Front): 背面ビュー時に前面機器をスマートゴースト表示
-        else if (fSide === 'full' && tSide === 'front') {
-          crossConnectedDeviceIds.add(tInfo.device.id);
-        } else if (fSide === 'front' && tSide === 'full') {
-          crossConnectedDeviceIds.add(fInfo.device.id);
-        }
       }
     });
 
-    // 跨ぎ配線を持つ反対側デバイス【のみ】をスマートゴーストとして追加
+    // 跨ぎ配線（Front ⇄ Rear）を持つ反対側デバイス【のみ】をスマートゴーストとして追加
     rack.devices.forEach((dev) => {
       const devSide = dev.side || 'front';
       const isOpposite = isFront ? devSide === 'rear' : devSide === 'front';
-      if (isOpposite && dev.startU >= 1 && dev.startU + (dev.sizeU || 1) - 1 <= rack.units) {
-        if (crossConnectedDeviceIds.has(dev.id)) {
-          const ghostDev = { ...dev, isGhost: true, isCrossConnected: true };
-          visibleDevices.push(ghostDev);
-          markOccupiedCols(ghostDev);
+      if (isOpposite && dev.startU >= 1 && dev.startU + dev.sizeU - 1 <= rack.units) {
+        const topU = dev.startU + dev.sizeU - 1;
+        const isCrossConnected = crossConnectedDeviceIds.has(dev.id);
+
+        if (isCrossConnected) {
+          ghostDevices.push(dev);
+          for (let u = dev.startU; u <= topU; u++) {
+            occupiedU.add(u);
+          }
+          if (!slotDevicesMap[topU]) {
+            slotDevicesMap[topU] = [];
+          }
+          slotDevicesMap[topU].push({ ...dev, isGhost: true, isCrossConnected: true });
         }
       }
     });
 
-    // 1. 空いているマス（空きスロット / 空きサブスロット）を CSS Grid に配置
+    // 1. 空いているスロット行を CSS Grid に配置
     for (let u = rack.units; u >= 1; u--) {
       const rowIndex = rack.units - u + 1;
-      const rowCols = occupiedMatrix[u];
-      const isAllEmpty = !rowCols[1] && !rowCols[2] && !rowCols[3] && !rowCols[4] && !rowCols[5] && !rowCols[6];
 
-      if (isAllEmpty) {
-        // フル幅空きスロット
+      if (!occupiedU.has(u)) {
         const slotCell = document.createElement('div');
         slotCell.className = 'rack-slot-cell';
         slotCell.style.gridRow = `${rowIndex} / span 1`;
-        slotCell.style.gridColumn = '1 / span 6';
         slotCell.dataset.u = u;
         slotCell.innerHTML = `
           <span class="slot-empty-text">Empty</span>
@@ -3241,88 +3176,66 @@ function renderRacks() {
         });
         setupSlotDropEvents(slotCell, rack);
         slotsGrid.appendChild(slotCell);
-      } else {
-        // 一部の列のみ空いている場合：空き列にサブスロット空きセルを配置
-        const devsAtThisU = visibleDevices.filter(d => u >= d.startU && u < d.startU + (d.sizeU || 1));
-        const isThird = devsAtThisU.some(d => d.slotWidth === 'third');
-
-        if (isThird) {
-          // 3分割 (列1: 1-2, 列2: 3-4, 列3: 5-6)
-          for (let col = 1; col <= 3; col++) {
-            const startCol = col === 3 ? 5 : (col === 2 ? 3 : 1);
-            if (!rowCols[startCol]) {
-              const emptySubSlot = document.createElement('div');
-              emptySubSlot.className = 'sub-slot-cell sub-slot-empty';
-              emptySubSlot.style.gridRow = `${rowIndex} / span 1`;
-              emptySubSlot.style.gridColumn = `${startCol} / span 2`;
-              emptySubSlot.dataset.rackId = rack.id;
-              emptySubSlot.dataset.u = u;
-              emptySubSlot.dataset.col = col;
-              emptySubSlot.title = `${u}U 列${col}: クリックで小型機器を追加 (1/3幅)`;
-              emptySubSlot.innerHTML = `<span class="sub-slot-empty-text">+ 空き</span>`;
-              emptySubSlot.addEventListener('click', (e) => {
-                e.stopPropagation();
-                quickAddSubDeviceAt(rack, u, col, 'third');
-              });
-              setupSlotDropEvents(emptySubSlot, rack, col);
-              slotsGrid.appendChild(emptySubSlot);
-            }
-          }
-        } else {
-          // 2分割（ハーフ: 列1: 1-3, 列2: 4-6）
-          // 列1 が空き
-          if (!rowCols[1] && !rowCols[2] && !rowCols[3]) {
-            const emptySubSlot = document.createElement('div');
-            emptySubSlot.className = 'sub-slot-cell sub-slot-empty';
-            emptySubSlot.style.gridRow = `${rowIndex} / span 1`;
-            emptySubSlot.style.gridColumn = '1 / span 3';
-            emptySubSlot.dataset.rackId = rack.id;
-            emptySubSlot.dataset.u = u;
-            emptySubSlot.dataset.col = 1;
-            emptySubSlot.title = `${u}U 列1: クリックでハーフ機器を追加 (1/2幅)`;
-            emptySubSlot.innerHTML = `<span class="sub-slot-empty-text">+ 空き</span>`;
-            emptySubSlot.addEventListener('click', (e) => {
-              e.stopPropagation();
-              quickAddSubDeviceAt(rack, u, 1, 'half');
-            });
-            setupSlotDropEvents(emptySubSlot, rack, 1);
-            slotsGrid.appendChild(emptySubSlot);
-          }
-          // 列2 が空き
-          if (!rowCols[4] && !rowCols[5] && !rowCols[6]) {
-            const emptySubSlot = document.createElement('div');
-            emptySubSlot.className = 'sub-slot-cell sub-slot-empty';
-            emptySubSlot.style.gridRow = `${rowIndex} / span 1`;
-            emptySubSlot.style.gridColumn = '4 / span 3';
-            emptySubSlot.dataset.rackId = rack.id;
-            emptySubSlot.dataset.u = u;
-            emptySubSlot.dataset.col = 2;
-            emptySubSlot.title = `${u}U 列2: クリックでハーフ機器を追加 (1/2幅)`;
-            emptySubSlot.innerHTML = `<span class="sub-slot-empty-text">+ 空き</span>`;
-            emptySubSlot.addEventListener('click', (e) => {
-              e.stopPropagation();
-              quickAddSubDeviceAt(rack, u, 2, 'half');
-            });
-            setupSlotDropEvents(emptySubSlot, rack, 2);
-            slotsGrid.appendChild(emptySubSlot);
-          }
-        }
       }
     }
 
-    // 3. マウントされた機器を直接 CSS Grid に配置 (1U+2Uなどの非対称高さもネイティブに美しく配置)
-    visibleDevices.forEach((dev) => {
-      const topU = dev.startU + (dev.sizeU || 1) - 1;
+    // 2. マウントされた機器を CSS Grid に配置
+    Object.keys(slotDevicesMap).forEach((topUStr) => {
+      const topU = parseInt(topUStr, 10);
+      const devsInSlot = slotDevicesMap[topU];
+      const maxSpan = Math.max(...devsInSlot.map((d) => d.sizeU || 1));
+      const startU = topU - maxSpan + 1;
       const rowIndex = rack.units - topU + 1;
-      const devEl = createDeviceElement(dev, rack, rowIndex);
 
-      devEl.style.gridRow = `${rowIndex} / span ${dev.sizeU || 1}`;
-      devEl.style.gridColumn = getDeviceGridColumn(dev.slotWidth, dev.slotCol);
-      devEl.dataset.topU = topU;
-      devEl.dataset.startU = dev.startU;
-      devEl.dataset.sizeU = dev.sizeU;
-      devEl.dataset.deviceId = dev.id;
-      slotsGrid.appendChild(devEl);
+      const isSingleFull = devsInSlot.length === 1 && (!devsInSlot[0].slotWidth || devsInSlot[0].slotWidth === 'full');
+
+      if (isSingleFull) {
+        const dev = devsInSlot[0];
+        const devEl = createDeviceElement(dev, rack, rowIndex);
+        devEl.style.gridRow = `${rowIndex} / span ${dev.sizeU || 1}`;
+        devEl.dataset.topU = topU;
+        devEl.dataset.startU = startU;
+        devEl.dataset.sizeU = dev.sizeU;
+        devEl.dataset.deviceId = dev.id;
+        slotsGrid.appendChild(devEl);
+      } else {
+        const multiContainer = document.createElement('div');
+        multiContainer.className = 'slot-multi-container';
+        multiContainer.style.gridRow = `${rowIndex} / span ${maxSpan}`;
+        multiContainer.dataset.topU = topU;
+
+        const slotDivision = devsInSlot.some((d) => d.slotWidth === 'third') ? 3 : 2;
+        multiContainer.style.gridTemplateColumns = `repeat(${slotDivision}, 1fr)`;
+
+        for (let col = 1; col <= slotDivision; col++) {
+          const dev = devsInSlot.find((d) => (d.slotCol || 1) === col);
+          if (dev) {
+            const devEl = createDeviceElement(dev, rack, null);
+            devEl.style.gridRow = '1 / span 1';
+            devEl.style.gridColumn = `${col} / span 1`;
+            devEl.dataset.topU = topU;
+            devEl.dataset.deviceId = dev.id;
+            multiContainer.appendChild(devEl);
+          } else {
+            const emptySubSlot = document.createElement('div');
+            emptySubSlot.className = 'sub-slot-cell sub-slot-empty';
+            emptySubSlot.style.gridRow = '1 / span 1';
+            emptySubSlot.style.gridColumn = `${col} / span 1`;
+            emptySubSlot.dataset.rackId = rack.id;
+            emptySubSlot.dataset.u = topU;
+            emptySubSlot.title = `${topU}U 列${col}: クリックで小型機器を追加 / D&Dで配置 (1/${slotDivision}幅)`;
+            emptySubSlot.innerHTML = `<span class="sub-slot-empty-text">+ 空き</span>`;
+            emptySubSlot.addEventListener('click', (e) => {
+              e.stopPropagation();
+              quickAddSubDeviceAt(rack, topU, col, slotDivision === 3 ? 'third' : 'half');
+            });
+            setupSlotDropEvents(emptySubSlot, rack, col);
+            multiContainer.appendChild(emptySubSlot);
+          }
+        }
+
+        slotsGrid.appendChild(multiContainer);
+      }
     });
 
     // 右側 U番号目盛り (CSS Grid: 42U 〜 1U / 完全左右対称)
@@ -3389,42 +3302,9 @@ function renderRacks() {
   });
 }
 
-// --- 6分割 CSS Grid におけるスロット幅・列番号のスパン計算 ---
-function getDeviceGridColumn(slotWidth, slotCol) {
-  const w = slotWidth || 'full';
-  const col = parseInt(slotCol, 10) || 1;
-
-  if (w === 'half') {
-    if (col === 2) return '4 / span 3';
-    return '1 / span 3';
-  } else if (w === 'third') {
-    if (col === 2) return '3 / span 2';
-    if (col === 3) return '5 / span 2';
-    return '1 / span 2';
-  } else if (w === 'quarter') {
-    if (col === 2) return '3 / span 1';
-    if (col === 3) return '4 / span 1';
-    if (col === 4) return '5 / span 2';
-    return '1 / span 2';
-  }
-  // full
-  return '1 / span 6';
-}
-
 function createDeviceElement(dev, rack, startRow = null) {
   const devEl = document.createElement('div');
   devEl.className = `mounted-device-grid-item type-${dev.type || 'rackmount'}`;
-  
-  if (dev.slotWidth === 'half') {
-    devEl.classList.add('width-half');
-  } else if (dev.slotWidth === 'third') {
-    devEl.classList.add('width-third');
-  } else if (dev.slotWidth === 'quarter') {
-    devEl.classList.add('width-quarter');
-  } else {
-    devEl.classList.add('width-full');
-  }
-
   if (dev.id === state.selectedDeviceId) {
     devEl.classList.add('selected');
   }
@@ -3441,7 +3321,6 @@ function createDeviceElement(dev, rack, startRow = null) {
   if (startRow !== null) {
     devEl.style.gridRow = `${startRow} / span ${dev.sizeU || 1}`;
   }
-  devEl.style.gridColumn = getDeviceGridColumn(dev.slotWidth, dev.slotCol);
 
   // ドラッグ可能フラグ＆識別データ
   devEl.draggable = true;
@@ -4059,7 +3938,7 @@ function renderPropCables(deviceId) {
 
   const devPortCount = device.portCount !== undefined ? device.portCount : 4;
 
-  // 自機器のポート選択肢を更新 (通常・外部配線両方)
+  // 自機器のポート選択肢を更新
   if (elements.propCableFromPort) {
     elements.propCableFromPort.innerHTML = '';
     const maxP = Math.max(1, devPortCount);
@@ -4068,17 +3947,6 @@ function renderPropCables(deviceId) {
       opt.value = p;
       opt.textContent = `Port ${p}`;
       elements.propCableFromPort.appendChild(opt);
-    }
-  }
-
-  if (elements.propCableExtFromPort) {
-    elements.propCableExtFromPort.innerHTML = '';
-    const maxP = Math.max(1, devPortCount);
-    for (let p = 1; p <= maxP; p++) {
-      const opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = `Port ${p}`;
-      elements.propCableExtFromPort.appendChild(opt);
     }
   }
 
@@ -4167,39 +4035,30 @@ function renderPropCables(deviceId) {
       const isConnected = !!cable;
       if (isConnected) connectedCount++;
 
-      const isExternal = cable && (cable.toDeviceId === '__external__' || !!cable.externalTarget);
-
       const itemEl = document.createElement('div');
-      itemEl.className = `prop-port-slot-item ${isConnected ? 'connected' : 'empty'} ${isExternal ? 'external-connected' : ''}`;
+      itemEl.className = `prop-port-slot-item ${isConnected ? 'connected' : 'empty'}`;
       itemEl.dataset.port = p;
 
       let targetText = '空き (未接続)';
       let targetName = '空き';
       let targetLoc = '';
       if (cable) {
-        if (isExternal) {
-          targetName = cable.externalTarget || 'フロア/外部接続';
-          targetLoc = 'Floor / External';
-          targetText = `🌐 ${targetName}`;
-          itemEl.title = `Port ${p}: 外部・フロア接続 [${targetName}] [クリックで自ポートに選択]`;
-        } else {
-          const isFrom = cable.fromDeviceId === device.id;
-          const otherDevId = isFrom ? cable.toDeviceId : cable.fromDeviceId;
-          const otherPort = isFrom ? cable.toPort : cable.fromPort;
-          const otherFound = findDevice(otherDevId);
-          const otherDev = otherFound?.device;
-          const otherRack = otherFound?.rack;
-          targetName = otherDev ? (otherDev.name || otherDevId) : '相手機器';
-          targetLoc = `${otherRack ? otherRack.name : ''} ${otherDev ? otherDev.startU + 'U' : ''}`;
-          targetText = `➔ ${targetName} [P${otherPort}]`;
-          itemEl.title = `Port ${p}: ${targetName} (${targetLoc} P${otherPort}) と接続中 [クリックで自ポートに選択]`;
-        }
+        const isFrom = cable.fromDeviceId === device.id;
+        const otherDevId = isFrom ? cable.toDeviceId : cable.fromDeviceId;
+        const otherPort = isFrom ? cable.toPort : cable.fromPort;
+        const otherFound = findDevice(otherDevId);
+        const otherDev = otherFound?.device;
+        const otherRack = otherFound?.rack;
+        targetName = otherDev ? (otherDev.name || otherDevId) : '相手機器';
+        targetLoc = `${otherRack ? otherRack.name : ''} ${otherDev ? otherDev.startU + 'U' : ''}`;
+        targetText = `➔ ${targetName} [P${otherPort}]`;
+        itemEl.title = `Port ${p}: ${targetName} (${targetLoc} P${otherPort}) と接続中 [クリックで自ポートに選択]`;
       } else {
         itemEl.title = `Port ${p}: 空きポート [クリックで自ポートに選択]`;
       }
 
       itemEl.innerHTML = `
-        <div class="prop-port-status-led ${isConnected ? 'connected' : 'empty'} ${isExternal ? 'external' : ''}"></div>
+        <div class="prop-port-status-led ${isConnected ? 'connected' : 'empty'}"></div>
         <span class="prop-port-num-badge">P${p}</span>
         <div class="prop-port-slot-info">
           <span class="prop-port-slot-label">${isConnected ? escapeHtml(targetName) : '空きポート'}</span>
@@ -4210,9 +4069,6 @@ function renderPropCables(deviceId) {
       itemEl.addEventListener('click', () => {
         if (elements.propCableFromPort) {
           elements.propCableFromPort.value = p;
-        }
-        if (elements.propCableExtFromPort) {
-          elements.propCableExtFromPort.value = p;
         }
         document.querySelectorAll('.prop-port-slot-item').forEach(el => el.classList.remove('selected'));
         itemEl.classList.add('selected');
@@ -4227,39 +4083,28 @@ function renderPropCables(deviceId) {
     elements.propPortMapSummary.textContent = `接続中: ${connectedCount} / 空き: ${maxP - connectedCount} (全${maxP}P)`;
   }
 
-  // 2. この機器に繋がっている有効なケーブル一覧をレンダリング（ラック内・外部両方）
-  const connectedCables = state.cables.filter((c) => {
-    if (c.fromDeviceId === device.id || c.toDeviceId === device.id) {
-      if (c.toDeviceId === '__external__' || !!c.externalTarget) return true;
-      return findDevice(c.fromDeviceId) && findDevice(c.toDeviceId);
-    }
-    return false;
-  });
+  // 2. この機器に繋がっている有効なケーブル一覧をレンダリング（孤立配線を自動除外）
+  const connectedCables = state.cables.filter(
+    (c) => (c.fromDeviceId === device.id || c.toDeviceId === device.id) &&
+           findDevice(c.fromDeviceId) && findDevice(c.toDeviceId)
+  );
 
   elements.propCablesList.innerHTML = '';
   if (connectedCables.length === 0) {
     elements.propCablesList.innerHTML = '<div style="font-size:11px; color:#64748b; padding:4px 0;">接続されているLANケーブルはありません</div>';
   } else {
     connectedCables.forEach((c) => {
-      const isExternal = c.toDeviceId === '__external__' || !!c.externalTarget;
       const isFrom = c.fromDeviceId === device.id;
       const otherDevId = isFrom ? c.toDeviceId : c.fromDeviceId;
       const otherPort = isFrom ? c.toPort : c.fromPort;
       const selfPort = isFrom ? c.fromPort : c.toPort;
 
-      let targetDisplayHtml = '';
-      if (isExternal) {
-        const extTargetName = c.externalTarget || c.label || 'フロア/外部接続';
-        targetDisplayHtml = `<span class="prop-cable-target-text" title="${escapeHtml(extTargetName)}" style="color:#6ee7b7;">➔ 🌐 [外部/フロア: ${escapeHtml(extTargetName)}]</span>`;
-      } else {
-        const otherInfo = findDevice(otherDevId);
-        const otherDev = otherInfo?.device;
-        const otherRack = otherInfo?.rack;
-        const otherRackName = otherRack ? otherRack.name : '';
-        const otherName = otherDev ? otherDev.name : '相手機器';
-        const otherStartU = otherDev ? `${otherDev.startU}U` : '-';
-        targetDisplayHtml = `<span class="prop-cable-target-text" title="${escapeHtml(otherName)}">[相手 ${otherStartU} : ${escapeHtml(otherRackName ? otherRackName + ' - ' : '')}${escapeHtml(otherName)} (P${otherPort})]</span>`;
-      }
+      const otherInfo = findDevice(otherDevId);
+      const otherDev = otherInfo?.device;
+      const otherRack = otherInfo?.rack;
+      const otherRackName = otherRack ? otherRack.name : '';
+      const otherName = otherDev ? otherDev.name : '相手機器';
+      const otherStartU = otherDev ? `${otherDev.startU}U` : '-';
 
       // カラー選択肢一覧 HTML を生成
       let colorOptionsHtml = CABLE_COLORS.map((item) => {
@@ -4275,12 +4120,12 @@ function renderPropCables(deviceId) {
 
       const item = document.createElement('div');
       item.className = 'prop-cable-item';
-      item.style.setProperty('--cable-color', c.color || (isExternal ? '#22c55e' : '#38bdf8'));
+      item.style.setProperty('--cable-color', c.color || '#38bdf8');
       item.innerHTML = `
         <div class="prop-cable-info" title="${escapeHtml(c.label || '')}">
           <span class="prop-cable-u-badge">[自 ${device.startU}U : P${selfPort}]</span>
           <span class="prop-cable-arrow">⇄</span>
-          ${targetDisplayHtml}
+          <span class="prop-cable-target-text" title="${escapeHtml(otherName)}">[相手 ${otherStartU} : ${escapeHtml(otherRackName ? otherRackName + ' - ' : '')}${escapeHtml(otherName)} (P${otherPort})]</span>
         </div>
         <div class="prop-cable-color-select-wrap">
           <select class="prop-cable-inline-color-select" title="配線カラー一覧から選択">
@@ -4288,7 +4133,7 @@ function renderPropCables(deviceId) {
           </select>
         </div>
         <div class="prop-cable-actions">
-          <button type="button" class="btn-icon btn-sm" title="通信テスト実行" style="color:${c.color || (isExternal ? '#22c55e' : '#38bdf8')};">
+          <button type="button" class="btn-icon btn-sm" title="通信テスト実行" style="color:${c.color || '#38bdf8'};">
             <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
@@ -4393,129 +4238,9 @@ function renderCables() {
   const zoom = state.zoom || 1.0;
 
   state.cables.forEach((cable, cableIndex) => {
-    const isExternal = cable.toDeviceId === '__external__' || !!cable.externalTarget;
     const fromDevInfo = findDevice(cable.fromDeviceId);
-    if (!fromDevInfo) return;
-
-    if (isExternal) {
-      // --- 🌐 フロア・外部配線のSVG描画 (天井・ケーブルラック方向へ美しく立ち上がり) ---
-      const fromDev = fromDevInfo.device;
-      const fromRack = fromDevInfo.rack;
-      const fromSide = fromDev.side || 'front';
-      const fromRackView = state.rackViewModes[fromRack.id] || state.settings.viewMode || 'front';
-
-      if (fromSide !== fromRackView && !fromDev.slotWidth?.includes('full')) {
-        return;
-      }
-
-      let fromPortEl = document.querySelector(`.port-item[data-device-id="${cable.fromDeviceId}"][data-port="${cable.fromPort}"]`);
-      const fromDevEl = document.querySelector(`.mounted-device-grid-item[data-device-id="${cable.fromDeviceId}"]`);
-      if (!fromDevEl) return;
-
-      let x1, y1;
-      if (fromPortEl) {
-        const r = fromPortEl.getBoundingClientRect();
-        x1 = (r.left + r.width / 2 - containerRect.left) / zoom;
-        y1 = (r.top + r.height / 2 - containerRect.top) / zoom;
-      } else {
-        const r = fromDevEl.getBoundingClientRect();
-        x1 = (r.right - 25 - containerRect.left) / zoom;
-        y1 = (r.top + r.height / 2 - containerRect.top) / zoom;
-      }
-
-      const fromRackCard = fromDevEl.closest('.rack-card');
-      if (!fromRackCard) return;
-      const fRect = fromRackCard.getBoundingClientRect();
-      const fRight = (fRect.right - containerRect.left) / zoom;
-      const fTop = (fRect.top - containerRect.top) / zoom;
-
-      const offset = ((cableIndex % 4) - 1.5) * 2;
-      const ductX = fRight + 10 + offset;
-      const ceilingY = fTop - 20 - (cableIndex % 5) * 8;
-      const tagEndX = ductX + 26;
-
-      const pathPoints = [
-        { x: x1, y: y1 },
-        { x: ductX, y: y1 },
-        { x: ductX, y: ceilingY },
-        { x: tagEndX, y: ceilingY }
-      ];
-      const pathD = buildOrthogonalRoundedPath(pathPoints, 8);
-
-      const cableCol = cable.color || '#22c55e';
-      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      g.className.baseVal = 'lan-cable-group lan-cable-external-group';
-      g.dataset.cableId = cable.id;
-      g.style.setProperty('--cable-color', cableCol);
-
-      const shadowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      shadowPath.setAttribute('d', pathD);
-      shadowPath.className.baseVal = 'lan-cable-shadow';
-
-      const mainPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      mainPath.setAttribute('d', pathD);
-      mainPath.setAttribute('stroke', cableCol);
-      mainPath.className.baseVal = 'lan-cable-path external-path';
-
-      const flowBeam = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      flowBeam.setAttribute('d', pathD);
-      flowBeam.className.baseVal = 'lan-cable-flow-beam';
-
-      // 終端のフロアラベルバッジ (rect + text)
-      const extName = cable.externalTarget || cable.label || 'Floor';
-      const labelText = `🌐 ${extName}`;
-      const textWidth = Math.max(76, labelText.length * 7.5 + 18);
-      const textHeight = 20;
-
-      const tagRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      tagRect.setAttribute('x', `${tagEndX}`);
-      tagRect.setAttribute('y', `${ceilingY - textHeight / 2}`);
-      tagRect.setAttribute('width', `${textWidth}`);
-      tagRect.setAttribute('height', `${textHeight}`);
-      tagRect.setAttribute('stroke', cableCol);
-      tagRect.className.baseVal = 'lan-cable-external-rect';
-
-      const tagText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-      tagText.setAttribute('x', `${tagEndX + textWidth / 2}`);
-      tagText.setAttribute('y', `${ceilingY}`);
-      tagText.textContent = labelText;
-      tagText.className.baseVal = 'lan-cable-external-tag';
-
-      g.addEventListener('mouseenter', (e) => {
-        g.classList.add('active');
-        showCableTooltip(cable, e);
-      });
-      g.addEventListener('mousemove', (e) => {
-        moveDeviceTooltip(e);
-      });
-      g.addEventListener('mouseleave', () => {
-        g.classList.remove('active');
-        hideDeviceTooltip();
-      });
-      g.addEventListener('click', (e) => {
-        e.stopPropagation();
-        hideDeviceTooltip();
-        if (state.cableMode) {
-          if (confirm(`外部・フロア配線を削除しますか？\n${cable.externalTarget || cable.label}`)) {
-            deleteCable(cable.id);
-          }
-        } else {
-          selectDevice(cable.fromDeviceId);
-        }
-      });
-
-      g.appendChild(shadowPath);
-      g.appendChild(mainPath);
-      g.appendChild(flowBeam);
-      g.appendChild(tagRect);
-      g.appendChild(tagText);
-      svg.appendChild(g);
-      return;
-    }
-
-    // --- ラック間・機器間 通常配線の描画 ---
     const toDevInfo = findDevice(cable.toDeviceId);
-    if (!toDevInfo) return;
+    if (!fromDevInfo || !toDevInfo) return;
 
     const fromDev = fromDevInfo.device;
     const toDev = toDevInfo.device;
@@ -4762,8 +4487,7 @@ function quickAddSubDeviceAt(rack, targetU, colIndex, widthType = 'half') {
     slotWidth: widthType,
     slotCol: colIndex,
     portCount: 8,
-    powerWatts: getDefaultPowerWatts('desktop', 1),
-    tags: getDefaultTagsForType('desktop'),
+    tags: [],
     pingEnabled: false,
     status: 'unmonitored',
     responseTimeMs: null,
@@ -4786,20 +4510,14 @@ function quickAddSubDeviceAt(rack, targetU, colIndex, widthType = 'half') {
   showToast(`${rack.name} の ${targetU}U (列${colIndex}) に小型機器を追加しました`, 'success');
 }
 
-// エイリアス
-const quickAddSubSlotDeviceAt = quickAddSubDeviceAt;
-
 // --- 空きスロットクイック追加 ---
 function quickAddDeviceAt(rack, targetU) {
   const currentSide = state.rackViewModes[rack.id] || 'front';
   const newTicketNo = generateNextTicketNo();
-  const defaultTags = getDefaultTagsForType('rackmount');
-  const defaultWatts = getDefaultPowerWatts('rackmount', 1);
-
   const newDev = {
     id: 'dev-' + Date.now(),
     ticketNo: newTicketNo,
-    name: `Server-${targetU}U`,
+    name: `新規機器-${targetU}U`,
     ip: '',
     hostname: '',
     vendor: '',
@@ -4809,8 +4527,7 @@ function quickAddDeviceAt(rack, targetU) {
     side: currentSide,
     type: 'rackmount',
     portCount: 2,
-    powerWatts: defaultWatts,
-    tags: [...defaultTags],
+    tags: [],
     pingEnabled: false,
     status: 'unmonitored',
     responseTimeMs: null,
@@ -4830,7 +4547,7 @@ function quickAddDeviceAt(rack, targetU) {
   saveData();
   renderRacks();
   selectDevice(newDev.id);
-  showToast(`${rack.name} の ${targetU}U に新規 1U サーバーを追加しました (タグ: ${defaultTags.join(', ')})`, 'success');
+  showToast(`${rack.name} の ${targetU}U に新規 1U サーバーを追加しました`, 'success');
 }
 
 // --- リアルタイム検索 & ハイライト / クイックジャンプ機能 (案1) ---
@@ -5010,78 +4727,11 @@ function highlightMatchedText(text, query) {
   }
 }
 
-function panToDevice(deviceId) {
+function jumpToDevice(rackId, deviceId) {
   const found = findDevice(deviceId);
   if (!found) return;
-  const { device, rack } = found;
-
-  const viewport = elements.stageViewport || elements.rackStage || document.getElementById('rack-stage') || document.querySelector('.workspace-canvas');
-  const container = elements.racksContainer || document.getElementById('racks-container');
-  const rackEl = document.getElementById(`rack-card-${rack.id}`) || document.querySelector(`.rack-card[data-rack-id="${rack.id}"]`);
-
-  if (!viewport || !container || !rackEl) return;
-
-  const vpRect = viewport.getBoundingClientRect();
-  const zoom = state.zoom || 1.0;
-  const rackLeft = rackEl.offsetLeft;
-  const rackWidth = rackEl.offsetWidth;
-
-  // 機器要素またはスロット位置からY座標を計算
-  const devEl = document.querySelector(`.mounted-device-grid-item[data-device-id="${deviceId}"]`);
-  let targetOffsetY = 0;
-  if (devEl) {
-    targetOffsetY = devEl.offsetTop || 0;
-  } else {
-    // 42Uラック上部からの概算位置 (1Uあたり約24px)
-    const uHeight = 24;
-    targetOffsetY = ((rack.units || 42) - (device.startU || 1)) * uHeight;
-  }
-
-  // 対象機器が画面中央に来るように panX, panY を計算
-  state.panX = (vpRect.width / 2) - (rackLeft + rackWidth / 2) * zoom;
-  state.panY = (vpRect.height / 2) - (rackEl.offsetTop + targetOffsetY) * zoom;
-
-  container.style.transition = 'transform 0.4s cubic-bezier(0.2, 0.9, 0.3, 1)';
-  container.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
-
-  setTimeout(() => {
-    container.style.transition = '';
-    renderCables();
-  }, 420);
-
-  if (devEl) {
-    devEl.classList.add('search-matched');
-    devEl.style.outline = '3px solid #38bdf8';
-    devEl.style.boxShadow = '0 0 20px rgba(56, 189, 248, 0.8)';
-    setTimeout(() => {
-      devEl.style.outline = '';
-      devEl.style.boxShadow = '';
-    }, 2500);
-  }
-}
-
-function jumpToDevice(arg1, arg2) {
-  const deviceId = arg2 || arg1;
-  const found = findDevice(deviceId);
-  if (!found) {
-    const storageDev = (state.storageDevices || []).find((d) => d.id === deviceId);
-    if (storageDev) {
-      showToast(`📦「${storageDev.name || '対象機器'}」は機器保管庫にあります`, 'info');
-      if (typeof openStorageDepotModal === 'function') openStorageDepotModal();
-      return;
-    }
-    showToast('指定された機器はラック上に見つかりませんでした', 'warning');
-    return;
-  }
 
   const { device, rack } = found;
-
-  // 開いている各種モーダルを自動で閉じる
-  if (typeof closePrintReportModal === 'function') closePrintReportModal();
-  if (typeof closeHistoryModal === 'function') closeHistoryModal();
-  if (elements.modalStorageDepot && elements.modalStorageDepot.classList.contains('open')) {
-    if (typeof closeStorageDepotModal === 'function') closeStorageDepotModal();
-  }
 
   // 設置面に合わせてラック面を切り替え
   if (device.side === 'rear') {
@@ -5097,23 +4747,15 @@ function jumpToDevice(arg1, arg2) {
     elements.searchResultsDropdown.style.display = 'none';
   }
 
-  // 距離が離れていても確実にTransform座標で画面中央へスムーズにパン & ハイライト
+  // 該当ラック＆スロットへ画面をスムーズスクロール／パン
   setTimeout(() => {
-    panToDevice(deviceId);
-
     const devEl = document.querySelector(`.mounted-device-grid-item[data-device-id="${deviceId}"]`);
     if (devEl) {
-      devEl.classList.remove('jump-highlight');
-      void devEl.offsetWidth; // リフロー
-      devEl.classList.add('jump-highlight');
-      setTimeout(() => devEl.classList.remove('jump-highlight'), 3000);
+      devEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
     }
-  }, 80);
+  }, 100);
 
-  const uLabel = (rack.columns === 2 || rack.rackType === 'storage_2col')
-    ? `${device.startU}段 列${device.slotCol || 1}`
-    : `${device.startU}U`;
-  showToast(`📍 ${rack.name} [${uLabel}] の「${device.name || '機器'}」へジャンプしました`, 'success');
+  showToast(`🔍 ${device.name || '機器'} (${rack.name} - ${device.startU}U) を選択しました`, 'info');
 }
 
 // --- 機器詳細ホバーポップアップ (Tooltip) ---
@@ -5191,9 +4833,6 @@ function showDeviceTooltip(dev, rack, e) {
       <div class="tooltip-label">LANポート:</div>
       <div class="tooltip-val">${dev.portCount !== undefined ? dev.portCount : 2} ポート</div>
 
-      <div class="tooltip-label">消費電力:</div>
-      <div class="tooltip-val mono" style="color:#fbbf24; font-weight:600;">⚡ ${(dev.powerWatts !== undefined && dev.powerWatts !== null && dev.powerWatts !== '') ? dev.powerWatts : getDefaultPowerWatts(dev.type, dev.sizeU)} W</div>
-
       ${(dev.tags && dev.tags.length > 0) ? `
         <div class="tooltip-label">タグ:</div>
         <div class="tooltip-val">${dev.tags.map(t => `<span class="device-mini-tag" style="margin-right:3px;">${escapeHtml(t)}</span>`).join('')}</div>
@@ -5252,67 +4891,42 @@ function hideDeviceTooltip() {
   }
 }
 
-// --- LANケーブル ホバー情報ポップアップ (フロア・外部配線対応) ---
+// --- LANケーブル ホバー情報ポップアップ ---
 function showCableTooltip(cable, e) {
   if (!elements.deviceHoverTooltip) return;
-  const isExternal = cable.toDeviceId === '__external__' || !!cable.externalTarget;
   const fromDev = findDevice(cable.fromDeviceId)?.device;
+  const toDev = findDevice(cable.toDeviceId)?.device;
   const fromRack = state.racks.find(r => r.devices.some(d => d.id === cable.fromDeviceId));
+  const toRack = state.racks.find(r => r.devices.some(d => d.id === cable.toDeviceId));
+
   const fromName = fromDev ? (fromDev.hostname || fromDev.name) : '接続元';
+  const toName = toDev ? (toDev.hostname || toDev.name) : '接続先';
   const fromLoc = `${fromRack ? fromRack.name : ''} ${fromDev ? fromDev.startU + 'U' : ''} (Port ${cable.fromPort})`;
+  const toLoc = `${toRack ? toRack.name : ''} ${toDev ? toDev.startU + 'U' : ''} (Port ${cable.toPort})`;
   const fromIp = fromDev?.ip ? `IP: ${fromDev.ip}` : '';
+  const toIp = toDev?.ip ? `IP: ${toDev.ip}` : '';
 
   const tooltip = elements.deviceHoverTooltip;
-  if (isExternal) {
-    const extName = cable.externalTarget || cable.label || 'フロア/外部接続';
-    tooltip.innerHTML = `
-      <div class="tooltip-cable-card">
-        <div class="tooltip-cable-header">
-          <span style="background: ${cable.color || '#22c55e'}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 8px ${cable.color || '#22c55e'};"></span>
-          <span>🌐 フロア・外部配線 (Uplink/Outlet)</span>
-        </div>
-        <div class="tooltip-cable-flow">
-          <div class="tooltip-cable-node">
-            <span class="tooltip-cable-node-title">🏢 ${escapeHtml(fromName)}</span>
-            <span class="tooltip-cable-node-detail">${escapeHtml(fromLoc)} ${escapeHtml(fromIp)}</span>
-          </div>
-          <div class="tooltip-cable-arrow">➔ 外部配線</div>
-          <div class="tooltip-cable-node" style="border-left: 2px solid #22c55e; padding-left:6px;">
-            <span class="tooltip-cable-node-title" style="color:#6ee7b7;">🌐 ${escapeHtml(extName)}</span>
-            <span class="tooltip-cable-node-detail">フロア / 壁面情報コンセント / WAN</span>
-          </div>
-        </div>
-        <div class="tooltip-hint">${state.cableMode ? '※ クリックで配線を削除' : '※ 配線モードまたはプロパティで削除可能'}</div>
+  tooltip.innerHTML = `
+    <div class="tooltip-cable-card">
+      <div class="tooltip-cable-header">
+        <span style="background: ${cable.color || '#38bdf8'}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 8px ${cable.color || '#38bdf8'};"></span>
+        <span>LAN ケーブル配線情報</span>
       </div>
-    `;
-  } else {
-    const toDev = findDevice(cable.toDeviceId)?.device;
-    const toRack = state.racks.find(r => r.devices.some(d => d.id === cable.toDeviceId));
-    const toName = toDev ? (toDev.hostname || toDev.name) : '接続先';
-    const toLoc = `${toRack ? toRack.name : ''} ${toDev ? toDev.startU + 'U' : ''} (Port ${cable.toPort})`;
-    const toIp = toDev?.ip ? `IP: ${toDev.ip}` : '';
-
-    tooltip.innerHTML = `
-      <div class="tooltip-cable-card">
-        <div class="tooltip-cable-header">
-          <span style="background: ${cable.color || '#38bdf8'}; width:10px; height:10px; border-radius:50%; display:inline-block; box-shadow: 0 0 8px ${cable.color || '#38bdf8'};"></span>
-          <span>LAN ケーブル配線情報</span>
+      <div class="tooltip-cable-flow">
+        <div class="tooltip-cable-node">
+          <span class="tooltip-cable-node-title">🅰 ${escapeHtml(fromName)}</span>
+          <span class="tooltip-cable-node-detail">${escapeHtml(fromLoc)} ${escapeHtml(fromIp)}</span>
         </div>
-        <div class="tooltip-cable-flow">
-          <div class="tooltip-cable-node">
-            <span class="tooltip-cable-node-title">🅰 ${escapeHtml(fromName)}</span>
-            <span class="tooltip-cable-node-detail">${escapeHtml(fromLoc)} ${escapeHtml(fromIp)}</span>
-          </div>
-          <div class="tooltip-cable-arrow">↕ 接続中</div>
-          <div class="tooltip-cable-node">
-            <span class="tooltip-cable-node-title">🅱 ${escapeHtml(toName)}</span>
-            <span class="tooltip-cable-node-detail">${escapeHtml(toLoc)} ${escapeHtml(toIp)}</span>
-          </div>
+        <div class="tooltip-cable-arrow">↕ 接続中</div>
+        <div class="tooltip-cable-node">
+          <span class="tooltip-cable-node-title">🅱 ${escapeHtml(toName)}</span>
+          <span class="tooltip-cable-node-detail">${escapeHtml(toLoc)} ${escapeHtml(toIp)}</span>
         </div>
-        <div class="tooltip-hint">${state.cableMode ? '※ クリックで配線を削除' : '※ 配線モードで繋ぎ直し・削除可能'}</div>
       </div>
-    `;
-  }
+      <div class="tooltip-hint">${state.cableMode ? '※ クリックで配線を削除' : '※ 配線モードで繋ぎ直し・削除可能'}</div>
+    </div>
+  `;
   tooltip.style.display = 'block';
   positionDeviceTooltip(e);
 }
@@ -6021,10 +5635,6 @@ function getLogTime(log) {
 }
 
 function recordChangeLog({ date, time, ticketNo, hostname, deviceId, type, operator, reason, snapshot = null }) {
-  // 🚧 初期構築モード（履歴記録OFF）が有効な場合は記録しない
-  if (state.settings && state.settings.initialSetupMode) {
-    return null;
-  }
   if (!state.changeLogs) state.changeLogs = [];
   const now = new Date();
   const logDate = date || now.toISOString().split('T')[0];
@@ -6790,15 +6400,17 @@ function renderChangeLogs() {
     const typeInfo = getChangeTypeName(log.type);
 
     // 該当ホストがラックに存在するか確認（クリックでジャンプ可能にする）
-    let hostCellHtml = `<span>${escapeHtml(log.hostname || '-')}</span>`;
     let jumpTarget = null;
     state.racks.forEach((r) => {
       r.devices.forEach((d) => {
         if (d.id === log.deviceId || d.hostname === log.hostname || d.name === log.hostname) {
-          jumpTarget = { rackId: r.id, deviceId: d.id, name: d.name, u: d.startU };
+          jumpTarget = { rackId: r.id, deviceId: d.id, name: d.name, hostname: d.hostname, ip: d.ip, u: d.startU };
         }
       });
     });
+
+    const displayDevName = jumpTarget ? (jumpTarget.hostname || jumpTarget.name) : (log.hostname || '-');
+    let hostCellHtml = `<span>${escapeHtml(displayDevName)}</span>`;
 
     if (jumpTarget) {
       hostCellHtml = `
@@ -6809,9 +6421,17 @@ function renderChangeLogs() {
             <line x1="6" y1="6" x2="6.01" y2="6"></line>
             <line x1="6" y1="18" x2="6.01" y2="18"></line>
           </svg>
-          <span>${escapeHtml(log.hostname || jumpTarget.name)}</span>
+          <span>${escapeHtml(displayDevName)}</span>
         </span>
       `;
+    }
+
+    // 追加申請ログの表示理由（初期仮名が残っている場合は最新の名称・IPに補正表示）
+    let displayReason = log.reason || '-';
+    if (log.type === 'add' && jumpTarget && (displayReason.includes('Server-') || displayReason.startsWith('[新規設置]'))) {
+      const rackObj = state.racks.find((r) => r.id === jumpTarget.rackId);
+      const rName = rackObj ? rackObj.name : 'ラック';
+      displayReason = `[新規設置] ${jumpTarget.name}${jumpTarget.hostname && jumpTarget.hostname !== jumpTarget.name ? ' (' + jumpTarget.hostname + ')' : ''} を ${rName} の ${jumpTarget.u}U に配置 (IP: ${jumpTarget.ip || '未設定'})`;
     }
 
     const isAdd = log.type === 'add';
@@ -6827,18 +6447,10 @@ function renderChangeLogs() {
         <div class="hist-date-main">${escapeHtml(log.date || '-')}</div>
         ${timeDisplay}
       </td>
-      <td>
-        <span class="hist-ticket-badge log-ticket-link" title="クリックしてラック図上の機器へ移動" style="cursor:pointer;">
-          <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:10px;height:10px;display:inline-block;vertical-align:middle;margin-right:2px;">
-            <circle cx="12" cy="12" r="10"></circle>
-            <polyline points="12 6 12 12 16 14"></polyline>
-          </svg>
-          <span>${escapeHtml(log.ticketNo || '-')}</span>
-        </span>
-      </td>
+      <td><span class="hist-ticket-badge">${escapeHtml(log.ticketNo || '-')}</span></td>
       <td>${hostCellHtml}</td>
       <td><span class="hist-type-badge ${typeInfo.cls}">${typeInfo.iconSvg} <span>${escapeHtml(typeInfo.label)}</span></span></td>
-      <td class="hist-reason-text">${escapeHtml(log.reason || '-')}</td>
+      <td class="hist-reason-text">${escapeHtml(displayReason)}</td>
       <td class="hist-operator-text">${escapeHtml(log.operator || '-')}</td>
       <td style="text-align:center; white-space:nowrap;">
         <button type="button" class="btn-doc-row ${docBtnClass}" title="${docBtnLabel}を作成・プレビュー・印刷">
@@ -6875,28 +6487,40 @@ function renderChangeLogs() {
       openEditHistoryLog(log.id);
     });
 
-    // ホスト名または管理番号クリックで該当機器へジャンプ
+    // ホスト名クリックで該当機器へジャンプ
     if (jumpTarget) {
       tr.querySelector('.hist-hostname-link')?.addEventListener('click', () => {
         closeHistoryModal();
         jumpToDevice(jumpTarget.rackId, jumpTarget.deviceId);
       });
-      tr.querySelector('.log-ticket-link')?.addEventListener('click', () => {
-        closeHistoryModal();
-        jumpToDevice(jumpTarget.rackId, jumpTarget.deviceId);
-      });
-    } else if (log.deviceId) {
-      tr.querySelector('.log-ticket-link')?.addEventListener('click', () => {
-        closeHistoryModal();
-        jumpToDevice(log.deviceId);
-      });
     }
 
     // 削除ボタン
     tr.querySelector('.btn-del-log').addEventListener('click', () => {
-      const ticketText = log.ticketNo ? `管理番号「${log.ticketNo}」の` : '';
-      if (confirm(`${ticketText}変更履歴を台帳から削除しますか？\n\n※ラック図上の機器構成はそのまま維持されます。`)) {
-        deleteChangeLog(log.id);
+      let devFound = log.deviceId ? findDevice(log.deviceId) : null;
+      if (!devFound && log.hostname) {
+        for (const r of state.racks) {
+          const d = r.devices.find(dev => dev.hostname === log.hostname || dev.name === log.hostname);
+          if (d) {
+            devFound = { device: d, rack: r };
+            break;
+          }
+        }
+      }
+
+      if (devFound) {
+        const choice = confirm(
+          `管理番号「${log.ticketNo}」の変更履歴を削除します。\n\n【OK】: ラック図上の機器「${devFound.device.name}」も連動して削除する（完全同期）\n【キャンセル】: 変更履歴台帳の記録のみ削除する（ラック図は維持）`
+        );
+        if (choice) {
+          deleteChangeLog(log.id, true);
+        } else {
+          deleteChangeLog(log.id, false);
+        }
+      } else {
+        if (confirm(`管理番号「${log.ticketNo}」の変更履歴を削除しますか？`)) {
+          deleteChangeLog(log.id, false);
+        }
       }
     });
 
@@ -6904,85 +6528,43 @@ function renderChangeLogs() {
   });
 }
 
-function deleteChangeLog(id) {
+function deleteChangeLog(id, removeDeviceFromRack = false) {
   if (!state.changeLogs) return;
   const idx = state.changeLogs.findIndex((l) => l.id === id);
   if (idx === -1) return;
-  state.changeLogs.splice(idx, 1);
+  const [log] = state.changeLogs.splice(idx, 1);
 
-  saveData();
-  renderChangeLogs();
-  if (state.selectedDeviceId) {
-    renderDevicePropertyHistory(state.selectedDeviceId);
-  }
-  showToast('変更履歴を台帳から削除しました（ラック構成は維持）', 'info');
-}
-
-// --- 案1: 変更履歴ログの一括クリア（初期化） ---
-function clearAllChangeLogs() {
-  const count = (state.changeLogs || []).length;
-  if (count === 0) {
-    showToast('現在、変更履歴ログはありません', 'info');
-    return;
-  }
-  const confirmMsg = `これまでの変更履歴ログ（全 ${count} 件）をすべてクリア（初期化）しますか？\n\n※ラックやサーバー、配線などの構成データ本体は安全に保持されます。`;
-  if (!confirm(confirmMsg)) return;
-
-  state.changeLogs = [];
-  saveData();
-  renderChangeLogs();
-  if (state.selectedDeviceId) {
-    renderDevicePropertyHistory(state.selectedDeviceId);
-  }
-  showToast(`変更履歴ログ（${count}件）をすべてクリアしました（初期状態にリセット）`, 'success');
-}
-
-// --- 案2: 初期構築モード（履歴記録OFF）のUI更新 & 切り替え ---
-function updateSetupModeUI() {
-  const isSetup = Boolean(state.settings && state.settings.initialSetupMode);
-
-  // ヘッダーボタン
-  if (elements.btnToggleSetupMode) {
-    if (isSetup) {
-      elements.btnToggleSetupMode.classList.add('active-setup-mode');
-      elements.btnToggleSetupMode.title = '初期構築モード: 有効（機器の追加・移動・編集を行っても変更履歴ログに記録されません）クリックで通常モードへ';
-      if (elements.setupModePill) {
-        elements.setupModePill.textContent = 'ON';
+  if (removeDeviceFromRack) {
+    let devFound = log.deviceId ? findDevice(log.deviceId) : null;
+    if (!devFound && log.hostname) {
+      for (const r of state.racks) {
+        const d = r.devices.find(dev => dev.hostname === log.hostname || dev.name === log.hostname);
+        if (d) {
+          devFound = { device: d, rack: r };
+          break;
+        }
       }
-    } else {
-      elements.btnToggleSetupMode.classList.remove('active-setup-mode');
-      elements.btnToggleSetupMode.title = '初期構築モード: OFF（通常の変更履歴記録が有効です）クリックで初期構築モードへ';
-      if (elements.setupModePill) {
-        elements.setupModePill.textContent = 'OFF';
+    }
+
+    if (devFound) {
+      const dIdx = devFound.rack.devices.findIndex(d => d.id === devFound.device.id);
+      if (dIdx !== -1) {
+        const delName = devFound.device.name;
+        devFound.rack.devices.splice(dIdx, 1);
+        cleanupOrphanCables();
+        if (state.selectedDeviceId === devFound.device.id) {
+          closePropertyPanel();
+        }
+        renderRacks();
+        updateHeaderStats();
+        showToast(`履歴と共にラック図から機器「${delName}」を連動削除しました`, 'info');
       }
     }
   }
 
-  // 履歴モーダル内のバナー
-  if (elements.historySetupModeBanner) {
-    elements.historySetupModeBanner.style.display = isSetup ? 'flex' : 'none';
-  }
-
-  // 設定モーダル内のチェックボックス
-  if (elements.settingSetupModeToggle) {
-    elements.settingSetupModeToggle.checked = isSetup;
-  }
-}
-
-function toggleSetupMode(forceState = null) {
-  if (!state.settings) state.settings = {};
-  const current = Boolean(state.settings.initialSetupMode);
-  const next = forceState !== null ? Boolean(forceState) : !current;
-
-  state.settings.initialSetupMode = next;
   saveData();
-  updateSetupModeUI();
-
-  if (next) {
-    showToast('🚧 初期構築モードを有効にしました（変更履歴の自動記録を停止）', 'warning');
-  } else {
-    showToast('✅ 通常運用モードに切り替えました（変更履歴の自動記録を再開）', 'success');
-  }
+  renderChangeLogs();
+  showToast('変更履歴を削除しました', 'info');
 }
 
 function exportHistoryCsv() {
@@ -7284,7 +6866,15 @@ function generateApplicationDocHtml(log, forcedDocType = null) {
         </tr>
         <tr>
           <th>申請理由・作業目的</th>
-          <td colspan="3" style="line-height:1.45;">${escapeHtml(log.reason || 'IT設備管理台帳に基づく定期構成変更および機器運用作業')}</td>
+          <td colspan="3" style="line-height:1.45;">${(() => {
+            let docReason = log.reason || 'IT設備管理台帳に基づく定期構成変更および機器運用作業';
+            if (docType === 'add') {
+              if (!docReason || docReason.includes('Server-') || docReason.startsWith('[新規設置]')) {
+                docReason = `[新規設置] ${devName}${hostname && hostname !== devName ? ' (' + hostname + ')' : ''} (${sizeU}U) を ${rackLoc} に配置 (IP: ${ipAddr})`;
+              }
+            }
+            return escapeHtml(docReason);
+          })()}</td>
         </tr>
       </table>
     </div>
@@ -7751,10 +7341,7 @@ function getDeviceTicketNo(dev) {
     dev.ticketNo = pastLog.ticketNo;
     return pastLog.ticketNo;
   }
-  // 履歴ログが存在しない場合でも、機器自体に確実に管理番号を自動採番して保持
-  dev.ticketNo = generateNextTicketNo();
-  saveData();
-  return dev.ticketNo;
+  return '-';
 }
 
 function getDeviceInstallDate(dev) {
@@ -7924,15 +7511,7 @@ function renderPrintReport(searchQuery = '') {
         <tr>
           <td><strong>${posText}</strong></td>
           <td>${sideText}</td>
-          <td>
-            <span class="report-ticket-link" data-device-id="${dev.id}" title="クリックしてラック図上の機器へ移動">
-              <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:11px;height:11px;display:inline-block;vertical-align:middle;margin-right:3px;">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
-              </svg>
-              <span>${escapeHtml(getDeviceTicketNo(dev))}</span>
-            </span>
-          </td>
+          <td><span style="font-family:var(--font-mono); font-weight:700; color:#38bdf8;">${escapeHtml(getDeviceTicketNo(dev))}</span></td>
           <td><span style="font-family:var(--font-mono); font-size:11.5px;">${escapeHtml(getDeviceInstallDate(dev))}</span></td>
           <td><strong>${escapeHtml(dev.name || '名称未設定')}</strong></td>
           <td>${getDeviceTypeName(dev.type)}</td>
@@ -7952,43 +7531,29 @@ function renderPrintReport(searchQuery = '') {
           電力使用量: <strong>${totalWatts.toLocaleString()}W</strong> | 収容数: <strong>${occupiedCount}/${totalCapacity}枠</strong>
         </div>
       </div>
-      <div class="report-table-scroll-wrapper">
-        <table class="report-table">
-          <thead>
-            <tr>
-              <th>位置</th>
-              <th>面</th>
-              <th>管理番号</th>
-              <th>導入日</th>
-              <th>機器名</th>
-              <th>種別</th>
-              <th>IPアドレス</th>
-              <th>ホスト名</th>
-              <th>メーカー/型番</th>
-              <th>電力</th>
-              <th>状態</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows || '<tr><td colspan="11" style="text-align:center; color:#94a3b8;">機器が配置されていません</td></tr>'}
-          </tbody>
-        </table>
-      </div>
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>位置</th>
+            <th>面</th>
+            <th>管理番号</th>
+            <th>導入日</th>
+            <th>機器名</th>
+            <th>種別</th>
+            <th>IPアドレス</th>
+            <th>ホスト名</th>
+            <th>メーカー/型番</th>
+            <th>電力</th>
+            <th>状態</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows || '<tr><td colspan="11" style="text-align:center; color:#94a3b8;">機器が配置されていません</td></tr>'}
+        </tbody>
+      </table>
     `;
 
     elements.printReportContainer.appendChild(sec);
-  });
-
-  // 管理番号クリックで該当ラック・機器へジャンプ
-  elements.printReportContainer.querySelectorAll('.report-ticket-link').forEach((linkEl) => {
-    linkEl.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const devId = linkEl.dataset.deviceId;
-      if (devId) {
-        jumpToDevice(devId);
-      }
-    });
   });
 
   if (elements.reportSearchCount) {
@@ -8272,31 +7837,13 @@ function renderPropTags() {
 
 
 
-// --- スロット空き状況判定 (6列グリッドベース高精度判定) ---
+// --- スロット空き状況判定 ---
 function checkSlotAvailability(rack, startU, sizeU, excludeDeviceId = null, slotWidth = 'full', slotCol = 1) {
   if (startU < 1 || startU + sizeU - 1 > rack.units) return false;
 
   const targetSide = state.draggedDevice?.side || (elements.propSide ? elements.propSide.value : 'front');
   const targetEndU = startU + sizeU - 1;
-
-  function getColRange(w, col) {
-    const c = parseInt(col, 10) || 1;
-    if (w === 'half') {
-      return c === 2 ? [4, 6] : [1, 3];
-    } else if (w === 'third') {
-      if (c === 2) return [3, 4];
-      if (c === 3) return [5, 6];
-      return [1, 2];
-    } else if (w === 'quarter') {
-      if (c === 2) return [3, 3];
-      if (c === 3) return [4, 4];
-      if (c === 4) return [5, 6];
-      return [1, 2];
-    }
-    return [1, 6]; // full
-  }
-
-  const [tColStart, tColEnd] = getColRange(slotWidth, slotCol);
+  const col = parseInt(slotCol, 10) || 1;
 
   for (const dev of rack.devices) {
     if (dev.id === excludeDeviceId) continue;
@@ -8313,10 +7860,17 @@ function checkSlotAvailability(rack, startU, sizeU, excludeDeviceId = null, slot
     const isUOverlap = Math.max(startU, devStartU) <= Math.min(targetEndU, devEndU);
     if (!isUOverlap) continue;
 
-    // 列範囲の重複があるか
-    const [dColStart, dColEnd] = getColRange(dev.slotWidth || 'full', dev.slotCol || 1);
-    const isColOverlap = Math.max(tColStart, dColStart) <= Math.min(tColEnd, dColEnd);
-    if (isColOverlap) {
+    // Uが重複している場合、横幅・列分割の判定
+    const devWidth = dev.slotWidth || 'full';
+    const devCol = parseInt(dev.slotCol, 10) || 1;
+
+    if (slotWidth === 'full' || devWidth === 'full') {
+      // どちらかがフル幅なら衝突
+      return false;
+    }
+
+    // 両方がサブスロット分割機器の場合、同じ列なら衝突
+    if (col === devCol) {
       return false;
     }
   }
@@ -8515,19 +8069,53 @@ async function saveCurrentDeviceProperties(silent = false) {
 
   const sideLabel = newSide === 'front' ? '前面 (Front)' : newSide === 'rear' ? '背面 (Rear)' : '前後貫通 (Full Depth)';
   const customReason = elements.propChangeReason ? elements.propChangeReason.value.trim() : '';
-  const logType = isMoved ? 'move' : 'config';
-  const defaultReason = isMoved
-    ? `[移設/スロット変更] ${device.name} を ${currentRack.name} ➜ ${targetRack.name} (${newStartU}U / ${sideLabel}) へ移動`
-    : `[設定更新] ${device.name} (IP: ${device.ip || '未設定'}) のプロパティを更新`;
 
-  recordChangeLog({
-    ticketNo: device.ticketNo,
-    hostname: device.hostname || device.name,
-    deviceId: device.id,
-    type: logType,
-    operator: '管理者 (GUI)',
-    reason: customReason || defaultReason
-  });
+  // 1. 該当機器の「新規設置・追加申請 (type: 'add')」ログを特定し、最新のホスト名・IP・スナップショットに同期
+  let existingAddLog = (state.changeLogs || []).find((l) => l.deviceId === device.id && l.type === 'add');
+  if (!existingAddLog && device.ticketNo) {
+    existingAddLog = (state.changeLogs || []).find((l) => l.ticketNo === device.ticketNo && l.type === 'add');
+  }
+
+  if (existingAddLog) {
+    existingAddLog.hostname = device.hostname || device.name;
+    existingAddLog.ticketNo = device.ticketNo;
+    existingAddLog.deviceId = device.id;
+    existingAddLog.deviceSnapshot = captureDeviceSnapshot(device);
+    // 初期ドロップ時の仮名や理由を最新の名称・IPにアップデート
+    if (existingAddLog.reason && (existingAddLog.reason.includes('Server-') || existingAddLog.reason.startsWith('[新規設置]'))) {
+      existingAddLog.reason = `[新規設置] ${device.name}${device.hostname && device.hostname !== device.name ? ' (' + device.hostname + ')' : ''} (${device.sizeU}U) を ${targetRack.name} の ${device.startU}U に配置 (IP: ${device.ip || '未設定'})`;
+    }
+  }
+
+  // 2. 初回設定保存判定:
+  // ドロップ直後の初期仮名（または未設定状態）から初めてプロパティを設定・保存した場合で、スロット移動やカスタム理由入力がないときは、
+  // 追加申請そのものの諸元を確定させる操作として扱い、不要な「設定更新」ログを重複させず追加申請ログを完成させる
+  const isInitialAddSetup = existingAddLog && !customReason && !isMoved && (
+    (state.changeLogs[0] && state.changeLogs[0].id === existingAddLog.id) ||
+    (existingAddLog.reason && existingAddLog.reason.includes('Server-'))
+  );
+
+  if (!isInitialAddSetup) {
+    const logType = isMoved ? 'move' : 'config';
+    const defaultReason = isMoved
+      ? `[移設/スロット変更] ${device.name} を ${currentRack.name} ➜ ${targetRack.name} (${newStartU}U / ${sideLabel}) へ移動`
+      : `[設定更新] ${device.name}${device.hostname && device.hostname !== device.name ? ' (' + device.hostname + ')' : ''} (IP: ${device.ip || '未設定'}) のプロパティを更新`;
+
+    recordChangeLog({
+      ticketNo: device.ticketNo,
+      hostname: device.hostname || device.name,
+      deviceId: device.id,
+      type: logType,
+      operator: '管理者 (GUI)',
+      reason: customReason || defaultReason,
+      snapshot: captureDeviceSnapshot(device)
+    });
+  } else {
+    // 初回設置確定時は追加申請ログを最新化し、履歴画面・プロパティ履歴を再描画
+    renderChangeLogs();
+    renderDevicePropertyHistory(device.id);
+  }
+
   if (elements.propChangeReason) elements.propChangeReason.value = '';
 
   await saveData(true);
@@ -8544,11 +8132,6 @@ async function saveCurrentDeviceProperties(silent = false) {
 
 // --- イベントリスナー ---
 function setupEventListeners() {
-  // 🚧 初期構築モードトグルボタン
-  if (elements.btnToggleSetupMode) {
-    elements.btnToggleSetupMode.addEventListener('click', () => toggleSetupMode());
-  }
-
   // v5: Undo / Redo (元に戻す・やり直す)
   if (elements.btnUndo) {
     elements.btnUndo.addEventListener('click', () => undoAction());
@@ -8624,95 +8207,10 @@ function setupEventListeners() {
     elements.btnCancelCable.addEventListener('click', cancelCableConnecting);
   }
 
-  // --- 外部/通常配線 タブ切り替え ＆ クイックフロアタグ ---
-  let currentCableTargetType = 'device'; // 'device' or 'external'
-
-  if (elements.btnCableTypeDevice) {
-    elements.btnCableTypeDevice.addEventListener('click', () => {
-      currentCableTargetType = 'device';
-      elements.btnCableTypeDevice.classList.add('active');
-      if (elements.btnCableTypeExternal) elements.btnCableTypeExternal.classList.remove('active');
-      if (elements.propCableTargetDeviceSection) elements.propCableTargetDeviceSection.style.display = 'block';
-      if (elements.propCableTargetExternalSection) elements.propCableTargetExternalSection.style.display = 'none';
-    });
-  }
-
-  if (elements.btnCableTypeExternal) {
-    elements.btnCableTypeExternal.addEventListener('click', () => {
-      currentCableTargetType = 'external';
-      elements.btnCableTypeExternal.classList.add('active');
-      if (elements.btnCableTypeDevice) elements.btnCableTypeDevice.classList.remove('active');
-      if (elements.propCableTargetDeviceSection) elements.propCableTargetDeviceSection.style.display = 'none';
-      if (elements.propCableTargetExternalSection) elements.propCableTargetExternalSection.style.display = 'block';
-    });
-  }
-
-  // クイックフロアタグ補完ボタン
-  document.querySelectorAll('.btn-quick-floor-tag').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const target = btn.dataset.target;
-      if (elements.propCableExtTarget) {
-        elements.propCableExtTarget.value = target;
-        elements.propCableExtTarget.focus();
-      }
-    });
-  });
-
-  // プロパティパネルからの配線追加 (通常配線 & フロア・外部配線両対応)
+  // プロパティパネルからの配線追加
   if (elements.btnPropAddCable) {
     elements.btnPropAddCable.addEventListener('click', () => {
       if (!state.selectedDeviceId) return;
-      const fromDev = findDevice(state.selectedDeviceId)?.device;
-      if (!fromDev) return;
-
-      if (currentCableTargetType === 'external') {
-        // フロア・外部配線の作成
-        const fromPort = elements.propCableExtFromPort ? (parseInt(elements.propCableExtFromPort.value, 10) || 1) : 1;
-        const extTarget = elements.propCableExtTarget ? elements.propCableExtTarget.value.trim() : '';
-        const cableColor = elements.propCableExtColorSelect ? elements.propCableExtColorSelect.value : '#22c55e';
-
-        if (!extTarget) {
-          showToast('フロアまたは外部接続先名（例: 3F 執務エリア）を入力してください', 'error');
-          if (elements.propCableExtTarget) elements.propCableExtTarget.focus();
-          return;
-        }
-
-        const exists = state.cables.some(
-          (c) => c.fromDeviceId === fromDev.id && c.fromPort === fromPort
-        );
-        if (exists) {
-          showToast(`自ポート Port ${fromPort} は既に結線されています`, 'error');
-          return;
-        }
-
-        const newCable = {
-          id: 'cable-' + Date.now(),
-          fromDeviceId: fromDev.id,
-          fromPort: fromPort,
-          toDeviceId: '__external__',
-          toPort: 0,
-          externalTarget: extTarget,
-          color: cableColor,
-          side: fromDev.side || 'front',
-          label: `${fromDev.name} (P${fromPort}) ➔ 🌐 ${extTarget}`
-        };
-
-        state.cables.push(newCable);
-        saveData();
-        updateCableCountBadge();
-        renderRacks();
-        renderPropCables(fromDev.id);
-        showToast(`外部・フロア配線を追加しました: 🌐 ${extTarget} (Port ${fromPort})`, 'success');
-
-        setTimeout(() => {
-          triggerCablePulse(newCable.id);
-        }, 200);
-
-        if (elements.propCableExtTarget) elements.propCableExtTarget.value = '';
-        return;
-      }
-
-      // 通常（ラック内機器間）配線の作成
       const targetDevId = elements.propCableTargetDev ? elements.propCableTargetDev.value : null;
       const fromPort = elements.propCableFromPort ? (parseInt(elements.propCableFromPort.value, 10) || 1) : 1;
       const toPort = elements.propCableToPort ? (parseInt(elements.propCableToPort.value, 10) || 1) : 1;
@@ -8723,8 +8221,9 @@ function setupEventListeners() {
         return;
       }
 
+      const fromDev = findDevice(state.selectedDeviceId)?.device;
       const toDev = findDevice(targetDevId)?.device;
-      if (!toDev) return;
+      if (!fromDev || !toDev) return;
 
       const exists = state.cables.some(
         (c) =>
@@ -9054,7 +8553,6 @@ function setupEventListeners() {
       if (elements.settingAutoPingToggle) state.settings.autoPingEnabled = elements.settingAutoPingToggle.checked;
       if (elements.settingPingInterval) state.settings.pingIntervalSeconds = parseInt(elements.settingPingInterval.value, 10);
       if (elements.settingPingTimeout) state.settings.pingTimeoutMs = parseInt(elements.settingPingTimeout.value, 10);
-      if (elements.settingSetupModeToggle) state.settings.initialSetupMode = elements.settingSetupModeToggle.checked;
 
       state.settings.ticketRule = {
         prefix: (elements.settingTicketPrefix?.value || 'CHG').trim(),
@@ -9066,10 +8564,9 @@ function setupEventListeners() {
       await saveData(true);
       startAutoPingTimer();
       updateHeaderStats();
-      updateSetupModeUI();
       renderRacks();
       if (elements.modalSettings) elements.modalSettings.classList.remove('open');
-      showToast('システム設定（テーマ・自動採番・初期構築モード）を保存しました', 'success');
+      showToast('システム設定（テーマ・自動採番）を保存しました', 'success');
     });
   }
 
@@ -9419,12 +8916,6 @@ function setupEventListeners() {
   if (elements.btnHistoryExportCsv) {
     elements.btnHistoryExportCsv.addEventListener('click', exportHistoryCsv);
   }
-  if (elements.btnClearAllHistory) {
-    elements.btnClearAllHistory.addEventListener('click', clearAllChangeLogs);
-  }
-  if (elements.btnBannerDisableSetupMode) {
-    elements.btnBannerDisableSetupMode.addEventListener('click', () => toggleSetupMode(false));
-  }
   if (elements.historySearchInput) {
     elements.historySearchInput.addEventListener('input', renderChangeLogs);
   }
@@ -9747,38 +9238,13 @@ function generateNextTicketNo() {
   const datePattern = rule.datePattern || 'YYYY';
   const digits = parseInt(rule.digits, 10) || 3;
 
+  // 既存の changeLogs から最大シーケンス番号を解析して自動連番
   let maxSeq = parseInt(rule.nextSeq, 10) || 1;
+  const logs = state.changeLogs || [];
 
-  // 1. 履歴ログから走査
-  (state.changeLogs || []).forEach((log) => {
+  logs.forEach((log) => {
     if (log.ticketNo) {
       const parts = String(log.ticketNo).split('-');
-      const lastPart = parts[parts.length - 1];
-      const parsedNum = parseInt(lastPart, 10);
-      if (!isNaN(parsedNum) && parsedNum >= maxSeq) {
-        maxSeq = parsedNum + 1;
-      }
-    }
-  });
-
-  // 2. 全ラック機器から走査
-  (state.racks || []).forEach((r) => {
-    (r.devices || []).forEach((d) => {
-      if (d.ticketNo) {
-        const parts = String(d.ticketNo).split('-');
-        const lastPart = parts[parts.length - 1];
-        const parsedNum = parseInt(lastPart, 10);
-        if (!isNaN(parsedNum) && parsedNum >= maxSeq) {
-          maxSeq = parsedNum + 1;
-        }
-      }
-    });
-  });
-
-  // 3. 保管庫機器から走査
-  (state.storageDevices || []).forEach((d) => {
-    if (d.ticketNo) {
-      const parts = String(d.ticketNo).split('-');
       const lastPart = parts[parts.length - 1];
       const parsedNum = parseInt(lastPart, 10);
       if (!isNaN(parsedNum) && parsedNum >= maxSeq) {
@@ -9809,7 +9275,6 @@ function updateSettingsUI() {
 
   if (elements.settingGlobalPingToggle) elements.settingGlobalPingToggle.checked = !!state.settings.globalPingEnabled;
   if (elements.settingAutoPingToggle) elements.settingAutoPingToggle.checked = !!state.settings.autoPingEnabled;
-  if (elements.settingSetupModeToggle) elements.settingSetupModeToggle.checked = !!state.settings.initialSetupMode;
   if (elements.settingPingInterval) elements.settingPingInterval.value = state.settings.pingIntervalSeconds || 30;
   if (elements.settingPingTimeout) elements.settingPingTimeout.value = state.settings.pingTimeoutMs || 1500;
 }
