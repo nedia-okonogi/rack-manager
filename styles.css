@@ -9427,4 +9427,207 @@ body.vlan-filtering .cable-line.vlan-match {
   }
 }
 
+/* ==========================================================================
+   レスポンシブ & コンパクト表示改善 (画面縮小・分割時の崩れ防止)
+   app-header & rack-stage-header Responsive Styles
+   ========================================================================== */
+
+/* ベース調整: 縮小時の柔軟な収縮を許可 */
+.app-header {
+  min-height: 60px;
+  transition: all 0.2s ease;
+}
+
+.header-left {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.logo-badge {
+  flex-shrink: 0;
+}
+
+.status-summary {
+  flex-shrink: 0;
+}
+
+.header-search-container {
+  min-width: 140px;
+  flex: 1 1 280px;
+  transition: all 0.2s ease;
+}
+
+.header-actions {
+  flex-shrink: 0;
+}
+
+.rack-stage-header {
+  min-height: 52px;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.stage-info {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+#rack-count-text {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.stage-sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.stage-header-tools {
+  flex-shrink: 0;
+}
+
+/* --- 幅 1380px 以下: サブタイトルとラベルの軽量化 --- */
+@media (max-width: 1380px) {
+  .app-header {
+    padding: 0 16px;
+  }
+  .header-left {
+    gap: 16px;
+  }
+  .logo-text .subtitle {
+    display: none;
+  }
+  .status-summary {
+    gap: 6px;
+  }
+  .stat-pill {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .stat-pill .label {
+    display: none; /* ドットと数字のみにして省スペース化（ホバーで内容は確認可能） */
+  }
+  .stat-pill .count {
+    font-size: 13px;
+  }
+  .header-search-container {
+    max-width: 260px;
+    margin: 0 10px;
+  }
+  .other-location-drop-cue,
+  .storage-depot-drop-cue {
+    display: none !important; /* ガイドテキストを非表示にしてウィジェットをスマート化 */
+  }
+  .rack-stage-header {
+    padding: 10px 16px;
+  }
+}
+
+/* --- 幅 1120px 以下: ヘッダーアクションのアイコン化 & 説明文の非表示 --- */
+@media (max-width: 1120px) {
+  .header-actions {
+    gap: 8px;
+  }
+  .btn-undo-redo span {
+    display: none; /* 「元に戻す」「やり直す」をアイコンのみに */
+  }
+  .btn-undo-redo {
+    padding: 7px 10px;
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+  }
+  #btn-add-rack span {
+    display: none; /* 「ラック追加」をアイコンのみに */
+  }
+  #btn-add-rack {
+    padding: 7px 11px;
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+  }
+  .btn-toggle {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .search-shortcut-badge {
+    display: none; /* 「Ctrl K」バッジを非表示 */
+  }
+  .stage-sub {
+    display: none; /* ラックステージの長い説明文を非表示 */
+  }
+  .other-location-widget,
+  .storage-depot-widget {
+    padding: 4px 9px;
+    gap: 7px;
+  }
+  .other-location-title,
+  .storage-depot-title {
+    font-size: 11px;
+  }
+  .other-location-count,
+  .storage-depot-count {
+    font-size: 9.5px;
+  }
+}
+
+/* --- 幅 860px 以下: 検索バーの折返し ＆ ヘッダーの2段スリム化 --- */
+@media (max-width: 860px) {
+  .app-header {
+    height: auto;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+  }
+  .header-left {
+    gap: 10px;
+  }
+  .logo-icon {
+    width: 28px;
+    height: 28px;
+  }
+  .logo-text h1 {
+    font-size: 16px;
+  }
+  .header-search-container {
+    order: 3;
+    width: 100%;
+    max-width: 100%;
+    margin: 4px 0 0 0;
+  }
+  .header-actions {
+    margin-left: auto;
+    gap: 6px;
+  }
+  .rack-stage-header {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .stage-header-tools {
+    gap: 8px;
+    margin-left: auto;
+  }
+}
+
+/* --- 幅 600px 以下: ウィジェットのミニマルアイコン化 --- */
+@media (max-width: 600px) {
+  .view-toggle-group .btn-toggle {
+    padding: 4px 7px;
+    font-size: 11px;
+  }
+  .other-location-title,
+  .storage-depot-title {
+    display: none; /* タイトルを非表示にし、アイコン＋件数バッジに */
+  }
+  .other-location-widget,
+  .storage-depot-widget {
+    padding: 4px 6px;
+  }
+}
+
+
 
